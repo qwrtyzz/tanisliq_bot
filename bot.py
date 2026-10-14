@@ -1,525 +1,550 @@
-import logging
+\
 import os
 import sqlite3
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
+import logging
+from pathlib import Path
+from html import escape
+
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
+from telegram.constants import ParseMode
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ConversationHandler, filters, ContextTypes
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ConversationHandler,
+    ContextTypes,
+    filters,
 )
 
-# Logging configuration
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+TOKEN = os.getenv("BOT_TOKEN", "").strip()
+DB = Path(os.getenv("DB_PATH", str(Path(__file__).with_name("tindraven.sqlite3"))))
 
-# 5 Dildə Mesajlar Sözlüyü
-LANGUAGES = {
+LANG, NAME, AGE, CITY, BIO_CHOICE, BIO, PHOTO, CONFIRM, EDIT, EDIT_VALUE = range(10)
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+# Bütün istifadəçi mesajları seçilmiş dildə göstərilir.
+T = {
     "az": {
-        "reg_name": "Gəlin profilinizi yaradaq.\n\nZəhmət olmasa **Adınızı** daxil edin:",
-        "reg_age": "Zəhmət olmasa **Yaşınızı** daxil edin:",
-        "age_error": "Zəhmət olmasa yaşınız üçün düzgün rəqəm daxil edin:",
-        "age_limit": "Təəssüf ki, botdan istifadə etmək üçün ən azı 16 yaşınız olmalıdır.",
-        "reg_location": "Yaşadığınız **Şəhər / Ünvanı** daxil edin:",
-        "bio_ask": "Özünüz haqqında əlavə məlumat vermək istəyirsiniz?",
-        "btn_yes": "✅ Hə",
-        "btn_no": "❌ Yox",
-        "bio_prompt": "Zəhmət olmasa özünüz haqqında məlumatı yazın:",
-        "photo_prompt": "Zəhmət olmasa profiliniz üçün bir **şəkil** göndərin:",
-        "confirm_profile": "Bu profil ilə davam edək?",
-        "profile_saved": "🎉 Profiliniz yadda saxlanıldı! Dost axtarışına başlamaq üçün /search yazın.",
-        "edit": "✏️ Profili Redaktə Et",
-        "delete": "🗑 Profili Sil",
-        "profile_deleted": "🗑 Profiliniz silindi. Yenidən başlamaq üçün /start yazın.",
-        "already_registered": "Siz artıq qeydiyyatdan keçmisiniz! Dost axtarmaq üçün /search, profilinizi idarə etmək üçün /myprofile yazın.",
-        "search_empty": "Hələ ki sizə uyğun yeni profil yoxdur. Bir az sonra yenidən cəhd edin!",
-        "match": "🎉 **Qarşılıqlı Bəyənmə!** {name} də sizi bəyəndi!\nƏlaqə: {contact}",
-        "cancel": "Qeydiyyat ləğv edildi."
+        "welcome": "TindraVen-ə xoş gəlmisiniz! ❤️ Dilinizi seçin:",
+        "name": "Adınızı yazın:",
+        "age": "Yaşınızı yazın (yalnız 18+):",
+        "under": "TindraVen yalnız 18 yaş və yuxarı şəxslər üçündür.",
+        "city": "Şəhərinizi və ya ərazinizi yazın. Dəqiq ev ünvanınızı yazmayın:",
+        "bioq": "Özünüz haqqında əlavə məlumat vermək istəyirsiniz?",
+        "bio": "Özünüz haqqında qısa məlumat yazın (maksimum 500 simvol):",
+        "photo": "Profil şəklinizi göndərin:",
+        "confirm": "Bu profillə davam edək?",
+        "yes": "Bəli", "no": "Xeyr", "edit": "Redaktə et",
+        "delete": "Profili sil", "saved": "Profiliniz təsdiqləndi! ❤️",
+        "editq": "Nəyi dəyişmək istəyirsiniz?",
+        "namekey": "Ad", "agekey": "Yaş", "citykey": "Şəhər",
+        "biokey": "Haqqımda", "photokey": "Şəkil",
+        "askname": "Yeni adınızı yazın:", "askage": "Yeni yaşınızı yazın (18+):",
+        "askcity": "Yeni şəhərinizi yazın:", "askbio": "Yeni məlumatınızı yazın:",
+        "askphoto": "Yeni şəklinizi göndərin:",
+        "badage": "Yaşı rəqəmlə yazın. Yalnız 18+ qəbul edilir.",
+        "bad": "Zəhmət olmasa, düzgün məlumat göndərin.",
+        "profile": "Profiliniz", "about": "Haqqımda",
+        "none": "Əlavə məlumat yoxdur", "deleted": "Profil silindi. /start yazın.",
+        "need": "Profiliniz yoxdur. /start yazın.",
+        "help": "Komandalar: /start, /profile, /delete, /help, /cancel",
+        "deleteq": "Profilinizi silmək istəyirsiniz?",
+        "cancel": "Əməliyyat dayandırıldı.",
+        "languages": ["Azərbaycan", "English", "Turkish", "Russian", "Indonesian"],
     },
     "en": {
-        "reg_name": "Let's set up your profile.\n\nPlease enter your **Name**:",
-        "reg_age": "Please enter your **Age**:",
-        "age_error": "Please enter a valid number for your age:",
-        "age_limit": "Sorry, you must be at least 16 years old to use this bot.",
-        "reg_location": "Please enter your **City / Location**:",
-        "bio_ask": "Would you like to add additional information about yourself?",
-        "btn_yes": "✅ Yes",
-        "btn_no": "❌ No",
-        "bio_prompt": "Please write something about yourself:",
-        "photo_prompt": "Please send a **photo** for your profile:",
-        "confirm_profile": "Shall we continue with this profile?",
-        "profile_saved": "🎉 Profile saved successfully! Type /search to start looking for friends.",
-        "edit": "✏️ Edit Profile",
-        "delete": "🗑 Delete Profile",
-        "profile_deleted": "🗑 Profile deleted. Type /start to register again.",
-        "already_registered": "You are already registered! Type /search to find friends or /myprofile to manage your profile.",
-        "search_empty": "No new profiles found right now. Check back later!",
-        "match": "🎉 **It's a Match!** {name} liked you back!\nContact: {contact}",
-        "cancel": "Registration cancelled."
+        "welcome": "Welcome to TindraVen! ❤️ Please choose your language:",
+        "name": "Enter your name:",
+        "age": "Enter your age (18+ only):",
+        "under": "TindraVen is only for people aged 18 and over.",
+        "city": "Enter your city or area. Do not share your exact home address:",
+        "bioq": "Would you like to add information about yourself?",
+        "bio": "Write a short description (maximum 500 characters):",
+        "photo": "Send your profile photo:",
+        "confirm": "Would you like to continue with this profile?",
+        "yes": "Yes", "no": "No", "edit": "Edit profile",
+        "delete": "Delete profile", "saved": "Your profile is confirmed! ❤️",
+        "editq": "What would you like to change?",
+        "namekey": "Name", "agekey": "Age", "citykey": "City",
+        "biokey": "About me", "photokey": "Photo",
+        "askname": "Enter your new name:", "askage": "Enter your new age (18+):",
+        "askcity": "Enter your new city:", "askbio": "Enter your new description:",
+        "askphoto": "Send your new photo:",
+        "badage": "Enter a numeric age. Only people aged 18+ are accepted.",
+        "bad": "Please send valid information.",
+        "profile": "Your profile", "about": "About me",
+        "none": "No extra information", "deleted": "Profile deleted. Send /start.",
+        "need": "You do not have a profile. Send /start.",
+        "help": "Commands: /start, /profile, /delete, /help, /cancel",
+        "deleteq": "Do you want to delete your profile?",
+        "cancel": "Operation cancelled.",
+        "languages": ["Azərbaycan", "English", "Turkish", "Russian", "Indonesian"],
     },
     "tr": {
-        "reg_name": "Profilinizi oluşturalım.\n\nLütfen **Adınızı** girin:",
-        "reg_age": "Lütfen **Yaşınızı** girin:",
-        "age_error": "Lütfen yaşınız için geçerli bir sayı girin:",
-        "age_limit": "Üzgünüm, bu botu kullanmak için en az 16 yaşında olmalısınız.",
-        "reg_location": "Lütfen **Şehrinizi / Konumunuzu** girin:",
-        "bio_ask": "Kendiniz hakkında ek bilgi vermek ister misiniz?",
-        "btn_yes": "✅ Evet",
-        "btn_no": "❌ Hayır",
-        "bio_prompt": "Lütfen kendiniz hakkında bir şeyler yazın:",
-        "photo_prompt": "Lütfen profiliniz için bir **fotoğraf** gönderin:",
-        "confirm_profile": "Bu profil ile devam edelim mi?",
-        "profile_saved": "🎉 Profiliniz kaydedildi! Arkadaş aramaya başlamak için /search yazın.",
-        "edit": "✏️ Profili Düzenle",
-        "delete": "🗑 Profili Sil",
-        "profile_deleted": "🗑 Profiliniz silindi. Tekrar kaydolmak için /start yazın.",
-        "already_registered": "Zaten kayıtlısınız! /search ile arkadaş arayabilir veya /myprofile ile profilinizi yönetebilirsiniz.",
-        "search_empty": "Şu an uygun yeni profil bulunamadı. Daha sonra tekrar deneyin!",
-        "match": "🎉 **Eşleşme!** {name} de seni beğendi!\nİletişim: {contact}",
-        "cancel": "Kayıt iptal edildi."
+        "welcome": "TindraVen'e hoş geldiniz! ❤️ Dilinizi seçin:",
+        "name": "Adınızı yazın:", "age": "Yaşınızı yazın (yalnızca 18+):",
+        "under": "TindraVen yalnızca 18 yaş ve üzeri kişiler içindir.",
+        "city": "Şehrinizi veya bölgenizi yazın. Açık ev adresinizi paylaşmayın:",
+        "bioq": "Kendiniz hakkında ek bilgi vermek ister misiniz?",
+        "bio": "Kendiniz hakkında kısa bir açıklama yazın (maks. 500 karakter):",
+        "photo": "Profil fotoğrafınızı gönderin:",
+        "confirm": "Bu profille devam edelim mi?",
+        "yes": "Evet", "no": "Hayır", "edit": "Profili düzenle",
+        "delete": "Profili sil", "saved": "Profiliniz onaylandı! ❤️",
+        "editq": "Neyi değiştirmek istersiniz?",
+        "namekey": "Ad", "agekey": "Yaş", "citykey": "Şehir",
+        "biokey": "Hakkımda", "photokey": "Fotoğraf",
+        "askname": "Yeni adınızı yazın:", "askage": "Yeni yaşınızı yazın (18+):",
+        "askcity": "Yeni şehrinizi yazın:", "askbio": "Yeni açıklamanızı yazın:",
+        "askphoto": "Yeni fotoğrafınızı gönderin:",
+        "badage": "Yaşı rakamla yazın. Yalnızca 18+.",
+        "bad": "Lütfen geçerli bilgi gönderin.",
+        "profile": "Profiliniz", "about": "Hakkımda",
+        "none": "Ek bilgi yok", "deleted": "Profil silindi. /start yazın.",
+        "need": "Profiliniz yok. /start yazın.",
+        "help": "Komutlar: /start, /profile, /delete, /help, /cancel",
+        "deleteq": "Profilinizi silmek istiyor musunuz?",
+        "cancel": "İşlem iptal edildi.",
+        "languages": ["Azərbaycan", "English", "Turkish", "Russian", "Indonesian"],
     },
     "ru": {
-        "reg_name": "Давайте создадим ваш профиль.\n\nПожалуйста, введите ваше **Имя**:",
-        "reg_age": "Пожалуйста, введите ваш **Возраст**:",
-        "age_error": "Пожалуйста, введите корректное число для возраста:",
-        "age_limit": "Извините, вам должно быть не менее 16 лет для использования бота.",
-        "reg_location": "Укажите ваш **Город / Местоположение**:",
-        "bio_ask": "Хотите добавить дополнительную информацию о себе?",
-        "btn_yes": "✅ Да",
-        "btn_no": "❌ Нет",
-        "bio_prompt": "Пожалуйста, напишите немного о себе:",
-        "photo_prompt": "Пожалуйста, отправьте **фотографию** для профиля:",
-        "confirm_profile": "Продолжить с этим профилем?",
-        "profile_saved": "🎉 Профиль сохранен! Напишите /search, чтобы начать поиск друзей.",
-        "edit": "✏️ Редактировать профиль",
-        "delete": "🗑 Удалить профиль",
-        "profile_deleted": "🗑 Профиль удален. Напишите /start для повторной регистрации.",
-        "already_registered": "Вы уже зарегистрированы! Напишите /search для поиска или /myprofile для управления профилем.",
-        "search_empty": "Новых профилей пока нет. Попробуйте позже!",
-        "match": "🎉 **У вас совпадение!** {name} ответил(а) взаимностью!\nКонтакты: {contact}",
-        "cancel": "Регистрация отменена."
+        "welcome": "Добро пожаловать в TindraVen! ❤️ Выберите язык:",
+        "name": "Введите имя:", "age": "Введите возраст (только 18+):",
+        "under": "TindraVen предназначен только для пользователей от 18 лет.",
+        "city": "Укажите город или район. Не указывайте точный домашний адрес:",
+        "bioq": "Хотите добавить информацию о себе?",
+        "bio": "Кратко расскажите о себе (до 500 символов):",
+        "photo": "Отправьте фото профиля:",
+        "confirm": "Продолжить с этим профилем?",
+        "yes": "Да", "no": "Нет", "edit": "Изменить профиль",
+        "delete": "Удалить профиль", "saved": "Профиль подтверждён! ❤️",
+        "editq": "Что хотите изменить?",
+        "namekey": "Имя", "agekey": "Возраст", "citykey": "Город",
+        "biokey": "О себе", "photokey": "Фото",
+        "askname": "Введите новое имя:", "askage": "Введите новый возраст (18+):",
+        "askcity": "Введите новый город:", "askbio": "Введите новое описание:",
+        "askphoto": "Отправьте новое фото:",
+        "badage": "Введите возраст цифрами. Только 18+.",
+        "bad": "Пожалуйста, отправьте корректные данные.",
+        "profile": "Ваш профиль", "about": "О себе",
+        "none": "Нет дополнительной информации", "deleted": "Профиль удалён. Отправьте /start.",
+        "need": "Профиля нет. Отправьте /start.",
+        "help": "Команды: /start, /profile, /delete, /help, /cancel",
+        "deleteq": "Удалить профиль?",
+        "cancel": "Операция отменена.",
+        "languages": ["Azərbaycan", "English", "Turkish", "Russian", "Indonesian"],
     },
     "id": {
-        "reg_name": "Mari buat profil Anda.\n\nSilakan masukkan **Nama** Anda:",
-        "reg_age": "Silakan masukkan **Usia** Anda:",
-        "age_error": "Silakan masukkan angka usia yang valid:",
-        "age_limit": "Maaf, Anda harus berusia minimal 16 tahun untuk menggunakan bot ini.",
-        "reg_location": "Silakan masukkan **Kota / Lokasi** Anda:",
-        "bio_ask": "Apakah Anda ingin menambahkan informasi tambahan tentang diri Anda?",
-        "btn_yes": "✅ Ya",
-        "btn_no": "❌ Tidak",
-        "bio_prompt": "Silakan tulis sesuatu tentang diri Anda:",
-        "photo_prompt": "Silakan kirim **foto** untuk profil Anda:",
-        "confirm_profile": "Lanjutkan dengan profil ini?",
-        "profile_saved": "🎉 Profil berhasil disimpan! Ketik /search untuk mulai mencari teman.",
-        "edit": "✏️ Edit Profil",
-        "delete": "🗑 Hapus Profil",
-        "profile_deleted": "🗑 Profil dihapus. Ketik /start untuk mendaftar lagi.",
-        "already_registered": "Anda sudah terdaftar! Ketik /search untuk mencari teman atau /myprofile untuk mengelola profil.",
-        "search_empty": "Tidak ada profil baru saat ini. Coba lagi nanti!",
-        "match": "🎉 **Cocok!** {name} menyukai Anda kembali!\nKontak: {contact}",
-        "cancel": "Pendaftaran dibatalkan."
-    }
+        "welcome": "Selamat datang di TindraVen! ❤️ Pilih bahasa Anda:",
+        "name": "Masukkan nama Anda:", "age": "Masukkan usia Anda (hanya 18+):",
+        "under": "TindraVen hanya untuk pengguna berusia 18 tahun ke atas.",
+        "city": "Masukkan kota atau area. Jangan bagikan alamat rumah lengkap:",
+        "bioq": "Ingin menambahkan informasi tentang diri Anda?",
+        "bio": "Tulis deskripsi singkat (maksimal 500 karakter):",
+        "photo": "Kirim foto profil Anda:",
+        "confirm": "Lanjutkan dengan profil ini?",
+        "yes": "Ya", "no": "Tidak", "edit": "Edit profil",
+        "delete": "Hapus profil", "saved": "Profil Anda dikonfirmasi! ❤️",
+        "editq": "Apa yang ingin Anda ubah?",
+        "namekey": "Nama", "agekey": "Usia", "citykey": "Kota",
+        "biokey": "Tentang saya", "photokey": "Foto",
+        "askname": "Masukkan nama baru:", "askage": "Masukkan usia baru (18+):",
+        "askcity": "Masukkan kota baru:", "askbio": "Masukkan deskripsi baru:",
+        "askphoto": "Kirim foto baru:",
+        "badage": "Masukkan usia dengan angka. Hanya 18+.",
+        "bad": "Silakan kirim informasi yang valid.",
+        "profile": "Profil Anda", "about": "Tentang saya",
+        "none": "Tidak ada info tambahan", "deleted": "Profil dihapus. Kirim /start.",
+        "need": "Anda belum memiliki profil. Kirim /start.",
+        "help": "Perintah: /start, /profile, /delete, /help, /cancel",
+        "deleteq": "Hapus profil Anda?",
+        "cancel": "Operasi dibatalkan.",
+        "languages": ["Azərbaycan", "English", "Turkish", "Russian", "Indonesian"],
+    },
 }
 
-# Database initialization
+LANG_CODES = ["az", "en", "tr", "ru", "id"]
+LANG_NAMES = ["🇦🇿 Azərbaycan", "🇬🇧 English", "🇹🇷 Turkish",
+              "🇷🇺 Russian", "🇮🇩 Indonesian"]
+
+
+def db():
+    DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def init_db():
-    conn = sqlite3.connect('dating_bot.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
+    with db() as c:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS profiles (
             user_id INTEGER PRIMARY KEY,
-            username TEXT,
+            language TEXT NOT NULL DEFAULT 'en',
             name TEXT,
             age INTEGER,
-            location TEXT,
-            bio TEXT,
-            photo_id TEXT,
-            language TEXT DEFAULT 'en'
+            city TEXT,
+            bio TEXT DEFAULT '',
+            photo TEXT,
+            confirmed INTEGER DEFAULT 0
         )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS likes (
-            from_user_id INTEGER,
-            to_user_id INTEGER,
-            PRIMARY KEY (from_user_id, to_user_id)
+        """)
+
+
+def get_profile(uid):
+    with db() as c:
+        return c.execute(
+            "SELECT * FROM profiles WHERE user_id=?", (uid,)
+        ).fetchone()
+
+
+def save(uid, field, value):
+    allowed = {"language", "name", "age", "city", "bio", "photo", "confirmed"}
+    if field not in allowed:
+        raise ValueError("Invalid field")
+    with db() as c:
+        c.execute(
+            f"UPDATE profiles SET {field}=? WHERE user_id=?",
+            (value, uid),
         )
-    ''')
-    conn.commit()
-    conn.close()
 
-init_db()
 
-def get_text(user_id, key, lang_fallback='en'):
-    try:
-        conn = sqlite3.connect('dating_bot.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT language FROM users WHERE user_id = ?', (user_id,))
-        res = cursor.fetchone()
-        conn.close()
-        lang = res[0] if res and res[0] in LANGUAGES else lang_fallback
-        return LANGUAGES[lang].get(key, LANGUAGES['en'].get(key, ""))
-    except Exception:
-        return LANGUAGES[lang_fallback].get(key, "")
+def ensure(uid, language):
+    with db() as c:
+        c.execute(
+            "INSERT OR IGNORE INTO profiles(user_id, language) VALUES (?, ?)",
+            (uid, language),
+        )
 
-# Registration States
-LANG_SELECT, NAME, AGE, LOCATION, BIO_CHOICE, BIO_INPUT, PHOTO, CONFIRM = range(8)
+
+def language(context):
+    return context.user_data.get("language", "en")
+
+
+def tr(context, key):
+    return T[language(context)].get(key, T["en"].get(key, key))
+
+
+def language_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(LANG_NAMES[0], callback_data="lang:az"),
+         InlineKeyboardButton(LANG_NAMES[1], callback_data="lang:en")],
+        [InlineKeyboardButton(LANG_NAMES[2], callback_data="lang:tr"),
+         InlineKeyboardButton(LANG_NAMES[3], callback_data="lang:ru")],
+        [InlineKeyboardButton(LANG_NAMES[4], callback_data="lang:id")],
+    ])
+
+
+def yes_no(context, prefix):
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(tr(context, "yes"), callback_data=f"{prefix}:yes"),
+        InlineKeyboardButton(tr(context, "no"), callback_data=f"{prefix}:no"),
+    ]])
+
+
+def profile_text(p, context):
+    x = T[p["language"]]
+    return (
+        f"<b>{escape(x['profile'])}</b>\n"
+        f"{escape(x['namekey'])}: {escape(str(p['name'] or ''))}\n"
+        f"{escape(x['agekey'])}: {p['age']}\n"
+        f"{escape(x['citykey'])}: {escape(str(p['city'] or ''))}\n"
+        f"{escape(x['about'])}: {escape(str(p['bio'] or x['none']))}"
+    )
+
+
+async def show_profile(chat_id, uid, context):
+    p = get_profile(uid)
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton(tr(context, "yes"), callback_data="confirm:yes"),
+        InlineKeyboardButton(tr(context, "no"), callback_data="confirm:no"),
+    ]])
+    await context.bot.send_photo(
+        chat_id=chat_id,
+        photo=p["photo"],
+        caption=profile_text(p, context),
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb,
+    )
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    conn = sqlite3.connect('dating_bot.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT name FROM users WHERE user_id = ? AND name IS NOT NULL', (user_id,))
-    user = cursor.fetchone()
-    conn.close()
+    context.user_data.clear()
+    await update.effective_message.reply_text(
+        T["en"]["welcome"], reply_markup=language_keyboard()
+    )
+    return LANG
 
-    if user:
-        await update.message.reply_text(get_text(user_id, "already_registered"))
+
+async def choose_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    code = q.data.split(":")[1]
+    context.user_data["language"] = code
+    ensure(q.from_user.id, code)
+    save(q.from_user.id, "language", code)
+
+    p = get_profile(q.from_user.id)
+    if p and p["confirmed"] and p["name"] and p["photo"]:
+        await q.edit_message_text(T[code]["saved"])
         return ConversationHandler.END
 
-    keyboard = [
-        [InlineKeyboardButton("Azerbaycan", callback_data="lang_az")],
-        [InlineKeyboardButton("English", callback_data="lang_en")],
-        [InlineKeyboardButton("Turkish", callback_data="lang_tr")],
-        [InlineKeyboardButton("Russia", callback_data="lang_ru")],
-        [InlineKeyboardButton("Indonesia", callback_data="lang_id")]
-    ]
-    await update.message.reply_text(
-        "Please choose your language:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    return LANG_SELECT
-
-async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    lang = query.data.split("_")[1]
-    context.user_data['language'] = lang
-    user_id = query.from_user.id
-
-    conn = sqlite3.connect('dating_bot.db')
-    cursor = conn.cursor()
-    cursor.execute('INSERT OR REPLACE INTO users (user_id, language) VALUES (?, ?)', (user_id, lang))
-    conn.commit()
-    conn.close()
-
-    await query.message.delete()
-    await context.bot.send_message(chat_id=user_id, text=get_text(user_id, "reg_name", lang))
+    await q.edit_message_text(T[code]["name"])
     return NAME
 
-async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = context.user_data.get('language', 'en')
-    context.user_data['name'] = update.message.text
-    await update.message.reply_text(get_text(user_id, "reg_age", lang))
+
+async def name_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    value = (update.effective_message.text or "").strip()
+    if not value or len(value) > 50:
+        await update.effective_message.reply_text(tr(context, "bad"))
+        return NAME
+    uid = update.effective_user.id
+    ensure(uid, language(context))
+    save(uid, "name", value)
+    await update.effective_message.reply_text(tr(context, "age"))
     return AGE
 
-async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = context.user_data.get('language', 'en')
-    text = update.message.text
-    if not text.isdigit():
-        await update.message.reply_text(get_text(user_id, "age_error", lang))
+
+async def age_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        age = int((update.effective_message.text or "").strip())
+    except ValueError:
+        await update.effective_message.reply_text(tr(context, "badage"))
         return AGE
-    
-    age = int(text)
-    if age < 16:
-        await update.message.reply_text(get_text(user_id, "age_limit", lang))
+
+    if age < 18:
+        await update.effective_message.reply_text(tr(context, "under"))
+        with db() as c:
+            c.execute("DELETE FROM profiles WHERE user_id=?",
+                      (update.effective_user.id,))
+        context.user_data.clear()
         return ConversationHandler.END
 
-    context.user_data['age'] = age
-    await update.message.reply_text(get_text(user_id, "reg_location", lang))
-    return LOCATION
+    if age > 120:
+        await update.effective_message.reply_text(tr(context, "badage"))
+        return AGE
 
-async def get_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = context.user_data.get('language', 'en')
-    context.user_data['location'] = update.message.text
+    save(update.effective_user.id, "age", age)
+    await update.effective_message.reply_text(tr(context, "city"))
+    return CITY
 
-    yes_str = get_text(user_id, "btn_yes", lang)
-    no_str = get_text(user_id, "btn_no", lang)
 
-    keyboard = [[yes_str, no_str]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-
-    await update.message.reply_text(get_text(user_id, "bio_ask", lang), reply_markup=reply_markup)
+async def city_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    value = (update.effective_message.text or "").strip()
+    if not value or len(value) > 100:
+        await update.effective_message.reply_text(tr(context, "bad"))
+        return CITY
+    save(update.effective_user.id, "city", value)
+    await update.effective_message.reply_text(
+        tr(context, "bioq"), reply_markup=yes_no(context, "biochoice")
+    )
     return BIO_CHOICE
 
-async def get_bio_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = context.user_data.get('language', 'en')
-    choice = update.message.text
 
-    yes_str = get_text(user_id, "btn_yes", lang)
-
-    if yes_str in choice or "Yes" in choice or "Hə" in choice or "Evet" in choice or "Да" in choice or "Ya" in choice:
-        await update.message.reply_text(get_text(user_id, "bio_prompt", lang), reply_markup=ReplyKeyboardRemove())
-        return BIO_INPUT
-    else:
-        context.user_data['bio'] = "-"
-        await update.message.reply_text(get_text(user_id, "photo_prompt", lang), reply_markup=ReplyKeyboardRemove())
-        return PHOTO
-
-async def get_bio_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = context.user_data.get('language', 'en')
-    context.user_data['bio'] = update.message.text
-    await update.message.reply_text(get_text(user_id, "photo_prompt", lang))
+async def bio_choice_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    if q.data.endswith(":yes"):
+        await q.edit_message_text(tr(context, "bio"))
+        return BIO
+    save(q.from_user.id, "bio", "")
+    await q.edit_message_text(tr(context, "photo"))
     return PHOTO
 
-async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = context.user_data.get('language', 'en')
-    
-    photo_file = update.message.photo[-1].file_id
-    context.user_data['photo_id'] = photo_file
 
-    caption = f"👤 **{context.user_data['name']}**, {context.user_data['age']}\n📍 {context.user_data['location']}"
-    if context.user_data.get('bio') and context.user_data['bio'] != "-":
-        caption += f"\n\n📝 {context.user_data['bio']}"
+async def bio_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    value = (update.effective_message.text or "").strip()
+    if len(value) > 500:
+        await update.effective_message.reply_text(tr(context, "bad"))
+        return BIO
+    save(update.effective_user.id, "bio", value)
+    await update.effective_message.reply_text(tr(context, "photo"))
+    return PHOTO
 
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Yes", callback_data="confirm_yes"),
-            InlineKeyboardButton("❌ No", callback_data="confirm_no")
-        ]
-    ]
-    
-    await update.message.reply_photo(
-        photo=photo_file, 
-        caption=f"{caption}\n\n{get_text(user_id, 'confirm_profile', lang)}", 
-        parse_mode="Markdown", 
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+
+async def photo_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    if not msg.photo:
+        await msg.reply_text(tr(context, "photo"))
+        return PHOTO
+    save(update.effective_user.id, "photo", msg.photo[-1].file_id)
+    await show_profile(update.effective_chat.id, update.effective_user.id, context)
     return CONFIRM
 
-async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    lang = context.user_data.get('language', 'en')
 
-    if query.data == "confirm_yes":
-        user = query.from_user
-        conn = sqlite3.connect('dating_bot.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE users SET username=?, name=?, age=?, location=?, bio=?, photo_id=?, language=?
-            WHERE user_id=?
-        ''', (
-            user.username or "Private",
-            context.user_data['name'],
-            context.user_data['age'],
-            context.user_data['location'],
-            context.user_data['bio'],
-            context.user_data['photo_id'],
-            lang,
-            user_id
-        ))
-        conn.commit()
-        conn.close()
+async def confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
 
-        await query.message.delete()
-        await context.bot.send_message(chat_id=user_id, text=get_text(user_id, "profile_saved", lang))
+    if q.data == "confirm:yes":
+        save(q.from_user.id, "confirmed", 1)
+        await q.edit_message_reply_markup(reply_markup=None)
+        await q.message.reply_text(tr(context, "saved"))
         return ConversationHandler.END
 
-    elif query.data == "confirm_no":
-        await query.message.delete()
-        keyboard = [
-            [
-                InlineKeyboardButton(get_text(user_id, "edit", lang), callback_data="edit_profile"),
-                InlineKeyboardButton(get_text(user_id, "delete", lang), callback_data="delete_profile")
-            ]
-        ]
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="Please choose an option:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(tr(context, "namekey"), callback_data="edit:name"),
+         InlineKeyboardButton(tr(context, "agekey"), callback_data="edit:age")],
+        [InlineKeyboardButton(tr(context, "citykey"), callback_data="edit:city"),
+         InlineKeyboardButton(tr(context, "biokey"), callback_data="edit:bio")],
+        [InlineKeyboardButton(tr(context, "photokey"), callback_data="edit:photo")],
+        [InlineKeyboardButton(tr(context, "delete"), callback_data="edit:delete")],
+    ])
+    await q.edit_message_reply_markup(reply_markup=None)
+    await q.message.reply_text(tr(context, "editq"), reply_markup=kb)
+    return EDIT
+
+
+async def edit_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    field = q.data.split(":")[1]
+
+    if field == "delete":
+        with db() as c:
+            c.execute("DELETE FROM profiles WHERE user_id=?", (q.from_user.id,))
+        context.user_data.clear()
+        await q.edit_message_text(tr(context, "deleted"))
         return ConversationHandler.END
+
+    context.user_data["editing"] = field
+    prompt = {
+        "name": "askname", "age": "askage", "city": "askcity",
+        "bio": "askbio", "photo": "askphoto",
+    }
+    await q.edit_message_text(tr(context, prompt[field]))
+    return EDIT_VALUE
+
+
+async def edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    uid = update.effective_user.id
+    field = context.user_data.get("editing")
+
+    if field == "photo":
+        if not msg.photo:
+            await msg.reply_text(tr(context, "askphoto"))
+            return EDIT_VALUE
+        save(uid, "photo", msg.photo[-1].file_id)
+    elif field == "age":
+        try:
+            age = int((msg.text or "").strip())
+        except ValueError:
+            await msg.reply_text(tr(context, "badage"))
+            return EDIT_VALUE
+        if not 18 <= age <= 120:
+            await msg.reply_text(tr(context, "badage"))
+            return EDIT_VALUE
+        save(uid, "age", age)
+    else:
+        value = (msg.text or "").strip()
+        limits = {"name": 50, "city": 100, "bio": 500}
+        if (field != "bio" and not value) or len(value) > limits[field]:
+            await msg.reply_text(tr(context, "bad"))
+            return EDIT_VALUE
+        save(uid, field, value)
+
+    context.user_data.pop("editing", None)
+    save(uid, "confirmed", 0)
+    await show_profile(update.effective_chat.id, uid, context)
+    return CONFIRM
+
+
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    p = get_profile(update.effective_user.id)
+    if not p or not p["name"] or not p["photo"]:
+        await update.effective_message.reply_text(tr(context, "need"))
+        return
+    context.user_data["language"] = p["language"]
+    await update.effective_message.reply_photo(
+        photo=p["photo"],
+        caption=profile_text(p, context),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    p = get_profile(update.effective_user.id)
+    if p:
+        context.user_data["language"] = p["language"]
+    await update.effective_message.reply_text(
+        tr(context, "deleteq"), reply_markup=yes_no(context, "delete")
+    )
+
+
+async def delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    p = get_profile(q.from_user.id)
+    code = p["language"] if p else language(context)
+
+    if q.data == "delete:no":
+        await q.edit_message_text(T[code]["cancel"])
+        return
+
+    with db() as c:
+        c.execute("DELETE FROM profiles WHERE user_id=?", (q.from_user.id,))
+    context.user_data.clear()
+    await q.edit_message_text(T[code]["deleted"])
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    p = get_profile(update.effective_user.id)
+    code = p["language"] if p else language(context)
+    await update.effective_message.reply_text(T[code]["help"])
+
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    await update.message.reply_text(get_text(user_id, "cancel"), reply_markup=ReplyKeyboardRemove())
+    await update.effective_message.reply_text(tr(context, "cancel"))
     return ConversationHandler.END
 
-async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    conn = sqlite3.connect('dating_bot.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT name, age, location, bio, photo_id FROM users WHERE user_id = ?', (user_id,))
-    user = cursor.fetchone()
-    conn.close()
-
-    if not user or not user[0]:
-        await update.message.reply_text("You haven't registered yet! Type /start to create a profile.")
-        return
-
-    name, age, loc, bio, photo_id = user
-    caption = f"👤 **{name}**, {age}\n📍 {loc}"
-    if bio and bio != "-":
-        caption += f"\n\n📝 {bio}"
-
-    keyboard = [
-        [
-            InlineKeyboardButton(get_text(user_id, "edit"), callback_data="edit_profile"),
-            InlineKeyboardButton(get_text(user_id, "delete"), callback_data="delete_profile")
-        ]
-    ]
-    
-    await update.message.reply_photo(
-        photo=photo_id, 
-        caption=caption, 
-        parse_mode="Markdown", 
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def handle_profile_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    if query.data == "delete_profile":
-        conn = sqlite3.connect('dating_bot.db')
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
-        cursor.execute('DELETE FROM likes WHERE from_user_id = ? OR to_user_id = ?', (user_id, user_id))
-        conn.commit()
-        conn.close()
-
-        await query.message.delete()
-        await context.bot.send_message(chat_id=user_id, text=get_text(user_id, "profile_deleted"))
-
-    elif query.data == "edit_profile":
-        conn = sqlite3.connect('dating_bot.db')
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
-        conn.commit()
-        conn.close()
-
-        await query.message.delete()
-        await context.bot.send_message(chat_id=user_id, text="Profile reset! Please type /start to begin again.")
-
-async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    conn = sqlite3.connect('dating_bot.db')
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT name FROM users WHERE user_id = ?', (user_id,))
-    current_user = cursor.fetchone()
-    
-    if not current_user or not current_user[0]:
-        await update.message.reply_text("Please register first by typing /start.")
-        conn.close()
-        return
-
-    query_str = (
-        "SELECT user_id, name, age, location, bio, photo_id FROM users "
-        "WHERE user_id != ? AND name IS NOT NULL AND user_id NOT IN ("
-        "SELECT to_user_id FROM likes WHERE from_user_id = ?"
-        ") LIMIT 1"
-    )
-
-    cursor.execute(query_str, (user_id, user_id))
-    profile = cursor.fetchone()
-    conn.close()
-
-    if not profile:
-        await update.message.reply_text(get_text(user_id, "search_empty"))
-        return
-
-    p_id, name, age, loc, bio, photo_id = profile
-    caption = f"👤 **{name}**, {age}\n📍 {loc}"
-    if bio and bio != "-":
-        caption += f"\n\n📝 {bio}"
-
-    keyboard = [
-        [
-            InlineKeyboardButton("❤️ Like", callback_data=f"like_{p_id}"),
-            InlineKeyboardButton("❌ Skip", callback_data=f"skip_{p_id}")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await context.bot.send_photo(chat_id=user_id, photo=photo_id, caption=caption, parse_mode="Markdown", reply_markup=reply_markup)
-
-async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    user_id = query.from_user.id
-
-    if data == "edit_profile" or data == "delete_profile":
-        return await handle_profile_action(update, context)
-
-    action, target_id = data.split("_")
-    target_id = int(target_id)
-    from_id = query.from_user.id
-
-    conn = sqlite3.connect('dating_bot.db')
-    cursor = conn.cursor()
-
-    if action == "like":
-        cursor.execute('INSERT OR IGNORE INTO likes (from_user_id, to_user_id) VALUES (?, ?)', (from_id, target_id))
-        conn.commit()
-
-        cursor.execute('SELECT * FROM likes WHERE from_user_id = ? AND to_user_id = ?', (target_id, from_id))
-        is_match = cursor.fetchone()
-
-        if is_match:
-            cursor.execute('SELECT username, name, language FROM users WHERE user_id = ?', (target_id,))
-            target_user = cursor.fetchone()
-            
-            cursor.execute('SELECT username, name, language FROM users WHERE user_id = ?', (from_id,))
-            from_user = cursor.fetchone()
-
-            target_link = f"@{target_user[0]}" if target_user[0] != "Private" else target_user[1]
-            from_link = f"@{from_user[0]}" if from_user[0] != "Private" else from_user[1]
-
-            t_text = LANGUAGES.get(target_user[2], LANGUAGES['en'])["match"].format(name=from_user[1], contact=from_link)
-            f_text = LANGUAGES.get(from_user[2], LANGUAGES['en'])["match"].format(name=target_user[1], contact=target_link)
-
-            await context.bot.send_message(chat_id=from_id, text=f_text)
-            await context.bot.send_message(chat_id=target_id, text=t_text)
-
-    elif action == "skip":
-        cursor.execute('INSERT OR IGNORE INTO likes (from_user_id, to_user_id) VALUES (?, ?)', (from_id, target_id))
-        conn.commit()
-
-    conn.close()
-    
-    await query.message.delete()
-    await search(update, context)
 
 def main():
-    TOKEN = os.getenv("BOT_TOKEN")
     if not TOKEN:
-        raise ValueError("BOT_TOKEN environment variable is missing!")
+        raise SystemExit(
+            "BOT_TOKEN is missing. Set it in Windows or Railway Variables."
+        )
 
-    app = ApplicationBuilder().token(TOKEN).build()
+    init_db()
+    app = Application.builder().token(TOKEN).build()
 
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
+    conversation = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
         states={
-            LANG_SELECT: [CallbackQueryHandler(language_chosen, pattern="^lang_")],
-            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
-            AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
-            LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_location)],
-            BIO_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_bio_choice)],
-            BIO_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_bio_input)],
-            PHOTO: [MessageHandler(filters.PHOTO, get_photo)],
-            CONFIRM: [CallbackQueryHandler(handle_confirmation, pattern="^confirm_")],
+            LANG: [CallbackQueryHandler(choose_language, pattern=r"^lang:(az|en|tr|ru|id)$")],
+            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, name_step)],
+            AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, age_step)],
+            CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, city_step)],
+            BIO_CHOICE: [CallbackQueryHandler(bio_choice_step, pattern=r"^biochoice:(yes|no)$")],
+            BIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, bio_step)],
+            PHOTO: [MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), photo_step)],
+            CONFIRM: [CallbackQueryHandler(confirm_step, pattern=r"^confirm:(yes|no)$")],
+            EDIT: [CallbackQueryHandler(edit_choice, pattern=r"^edit:(name|age|city|bio|photo|delete)$")],
+            EDIT_VALUE: [MessageHandler(filters.ALL & ~filters.COMMAND, edit_value)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
-        per_chat=True,
-        per_user=True
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True,
     )
 
-    app.add_handler(conv_handler)
-    app.add_handler(CommandHandler('myprofile', my_profile))
-    app.add_handler(CommandHandler('search', search))
-    app.add_handler(CallbackQueryHandler(handle_action))
+    app.add_handler(conversation)
+    app.add_handler(CommandHandler("profile", profile_command))
+    app.add_handler(CommandHandler("delete", delete_command))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CallbackQueryHandler(delete_confirm, pattern=r"^delete:(yes|no)$"))
 
-    print("Bot is up and running...")
-    app.run_polling()
+    logging.info("TindraVen bot started")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
