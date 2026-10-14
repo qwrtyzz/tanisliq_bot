@@ -23,6 +23,7 @@ def init_db():
             location TEXT,
             gender TEXT,
             looking_for TEXT,
+            bio TEXT,
             photo_id TEXT
         )
     ''')
@@ -39,7 +40,7 @@ def init_db():
 init_db()
 
 # Registration States
-NAME, AGE, LOCATION, GENDER, LOOKING_FOR, PHOTO = range(6)
+NAME, AGE, LOCATION, GENDER, LOOKING_FOR, BIO, PHOTO = range(7)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -50,7 +51,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     if user:
-        await update.message.reply_text("You are already registered! Use /search to browse profiles.")
+        await update.message.reply_text(
+            "You are already registered! Use /search to browse profiles or /myprofile to manage your profile."
+        )
         return ConversationHandler.END
 
     await update.message.reply_text("Welcome! Let's set up your profile.\n\nPlease enter your **Name**:")
@@ -79,7 +82,6 @@ async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['location'] = update.message.text
     
-    # Gender selection keyboard
     keyboard = [["👨 Male", "👩 Female", "⚧ Other"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     
@@ -89,7 +91,6 @@ async def get_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['gender'] = update.message.text
     
-    # Looking for selection keyboard
     keyboard = [["👨 Men", "👩 Women", "🌈 Everyone"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     
@@ -100,9 +101,14 @@ async def get_looking_for(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['looking_for'] = update.message.text
     
     await update.message.reply_text(
-        "Please send a photo for your profile:",
+        "Write a short **Bio** about yourself and what you are looking for:",
         reply_markup=ReplyKeyboardRemove()
     )
+    return BIO
+
+async def get_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['bio'] = update.message.text
+    await update.message.reply_text("Now, please send a **photo** for your profile:")
     return PHOTO
 
 async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -112,8 +118,8 @@ async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect('dating_bot.db')
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO users (user_id, username, name, age, location, gender, looking_for, photo_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO users (user_id, username, name, age, location, gender, looking_for, bio, photo_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user.id,
         user.username or "Private",
@@ -122,17 +128,87 @@ async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['location'],
         context.user_data['gender'],
         context.user_data['looking_for'],
+        context.user_data['bio'],
         photo_file
     ))
     conn.commit()
     conn.close()
 
-    await update.message.reply_text("🎉 Profile completed successfully! Use /search to start browsing profiles.")
+    await update.message.reply_text("🎉 Profile completed successfully! Here is how people see you:")
+    
+    # Send preview to the user
+    caption = f"👤 **{context.user_data['name']}**, {context.user_data['age']}\n📍 {context.user_data['location']}\n\n📝 {context.user_data['bio']}"
+    keyboard = [
+        [
+            InlineKeyboardButton("✏️ Edit Profile", callback_data="edit_profile"),
+            InlineKeyboardButton("🗑 Delete Profile", callback_data="delete_profile")
+        ]
+    ]
+    await update.message.reply_photo(photo=photo_file, caption=caption, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Registration cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
+
+# My Profile Management (/myprofile)
+async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    conn = sqlite3.connect('dating_bot.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT name, age, location, gender, looking_for, bio, photo_id FROM users WHERE user_id = ?', (user_id,))
+    user = cursor.fetchone()
+    conn.close()
+
+    if not user:
+        await update.message.reply_text("You haven't registered yet! Type /start to create a profile.")
+        return
+
+    name, age, loc, gender, looking_for, bio, photo_id = user
+    caption = f"👤 **{name}**, {age}\n📍 {loc}\nGender: {gender} | Looking for: {looking_for}\n\n📝 {bio}"
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("✏️ Edit Profile", callback_data="edit_profile"),
+            InlineKeyboardButton("🗑 Delete Profile", callback_data="delete_profile")
+        ]
+    ]
+    
+    await update.message.reply_photo(
+        photo=photo_id, 
+        caption=f"Your Profile:\n\n{caption}", 
+        parse_mode="Markdown", 
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# Profile Action Handler (Edit / Delete)
+async def handle_profile_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    if query.data == "delete_profile":
+        conn = sqlite3.connect('dating_bot.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
+        cursor.execute('DELETE FROM likes WHERE from_user_id = ? OR to_user_id = ?', (user_id, user_id))
+        conn.commit()
+        conn.close()
+
+        await query.message.delete()
+        await context.bot.send_message(chat_id=user_id, text="🗑 Your profile has been deleted. Type /start to register again.")
+
+    elif query.data == "edit_profile":
+        conn = sqlite3.connect('dating_bot.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
+        conn.commit()
+        conn.close()
+
+        await query.message.delete()
+        await context.bot.send_message(chat_id=user_id, text="Let's update your profile! Please enter your new **Name**:")
+        # Return state for registration starting from NAME
+        return NAME
 
 # Search & Matchmaking
 async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -140,7 +216,6 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect('dating_bot.db')
     cursor = conn.cursor()
     
-    # Get current user profile
     cursor.execute('SELECT gender, looking_for FROM users WHERE user_id = ?', (user_id,))
     current_user = cursor.fetchone()
     
@@ -151,9 +226,8 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     my_gender, my_preference = current_user
 
-    # Filter query based on gender preferences
     query = '''
-        SELECT user_id, name, age, location, photo_id FROM users 
+        SELECT user_id, name, age, location, bio, photo_id FROM users 
         WHERE user_id != ? AND user_id NOT IN (
             SELECT to_user_id FROM likes WHERE from_user_id = ?
         )
@@ -175,8 +249,8 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No new profiles found right now. Check back later!")
         return
 
-    p_id, name, age, loc, photo_id = profile
-    caption = f"👤 **{name}**, {age}\n📍 {loc}"
+    p_id, name, age, loc, bio, photo_id = profile
+    caption = f"👤 **{name}**, {age}\n📍 {loc}\n\n📝 {bio}"
     
     keyboard = [
         [
@@ -193,7 +267,11 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    action, target_id = query.data.split("_")
+    data = query.data
+    if data.startswith("edit_profile") or data.startswith("delete_profile"):
+        return await handle_profile_action(update, context)
+
+    action, target_id = data.split("_")
     target_id = int(target_id)
     from_id = query.from_user.id
 
@@ -204,7 +282,6 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cursor.execute('INSERT OR IGNORE INTO likes (from_user_id, to_user_id) VALUES (?, ?)', (from_id, target_id))
         conn.commit()
 
-        # Check for mutual match
         cursor.execute('SELECT * FROM likes WHERE from_user_id = ? AND to_user_id = ?', (target_id, from_id))
         is_match = cursor.fetchone()
 
@@ -237,7 +314,6 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await search(update, context)
 
 def main():
-    # Token birbaşa sistem mühitindən (Environment Variables) oxunur
     TOKEN = os.getenv("BOT_TOKEN")
     
     if not TOKEN:
@@ -253,12 +329,14 @@ def main():
             LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_location)],
             GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_gender)],
             LOOKING_FOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_looking_for)],
+            BIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_bio)],
             PHOTO: [MessageHandler(filters.PHOTO, get_photo)],
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
 
     app.add_handler(conv_handler)
+    app.add_handler(CommandHandler('myprofile', my_profile))
     app.add_handler(CommandHandler('search', search))
     app.add_handler(CallbackQueryHandler(handle_action))
 
