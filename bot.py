@@ -10,6 +10,70 @@ from telegram.ext import (
 # Logging configuration
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
+# Translations Dictionary
+LANGUAGES = {
+    "en": {
+        "welcome": "Welcome! Please choose your language:",
+        "reg_name": "Let's set up your profile.\n\nPlease enter your **Name**:",
+        "reg_age": "Please enter your **Age**:",
+        "age_error": "Please enter a valid number for your age:",
+        "age_limit": "Sorry, you must be at least 16 years old to use this bot.",
+        "reg_location": "Please enter your **City / Location**:",
+        "gender_select": "Select your **Gender**:",
+        "looking_for": "Who are you looking to meet?",
+        "bio_prompt": "Write a short **Bio** about yourself and what you are looking for:",
+        "photo_prompt": "Now, please send a **photo** for your profile:",
+        "profile_done": "🎉 Profile completed successfully! Here is how people see you:",
+        "already_registered": "You are already registered! Use /search to browse profiles or /myprofile to manage your profile.",
+        "search_no_profile": "Please register first by typing /start.",
+        "search_empty": "No new profiles found right now. Check back later!",
+        "match": "🎉 **It's a Match!** {name} liked you back!\nContact: {contact}",
+        "edit": "✏️ Edit Profile",
+        "delete": "🗑 Delete Profile",
+        "cancel": "Registration cancelled."
+    },
+    "tr": {
+        "welcome": "Hoş geldiniz! Lütfen dil seçin:",
+        "reg_name": "Profilinizi oluşturalım.\n\nLütfen **Adınızı** girin:",
+        "reg_age": "Lütfen **Yaşınızı** girin:",
+        "age_error": "Lütfen yaşınız için geçerli bir sayı girin:",
+        "age_limit": "Üzgünüm, bu botu kullanmak için en az 16 yaşında olmalısınız.",
+        "reg_location": "Lütfen **Şehrinizi / Konumunuzu** girin:",
+        "gender_select": "Cinsiyetinizi seçin:",
+        "looking_for": "Kiminle tanışmak istiyorsunuz?",
+        "bio_prompt": "Kendiniz ve aradığınız kişi hakkında kısa bir **biyografi** yazın:",
+        "photo_prompt": "Şimdi profiliniz için bir **fotoğraf** gönderin:",
+        "profile_done": "🎉 Profil başarıyla tamamlandı! İnsanlar seni böyle görüyor:",
+        "already_registered": "Zaten kayıtlısınız! /search ile profillere göz atın veya /myprofile ile profilinizi yönetin.",
+        "search_no_profile": "Lütfen önce /start yazarak kayıt olun.",
+        "search_empty": "Şu an uygun yeni profil bulunamadı. Daha sonra tekrar deneyin!",
+        "match": "🎉 **Eşleşme!** {name} de seni beğendi!\nİletişim: {contact}",
+        "edit": "✏️ Profili Düzenle",
+        "delete": "🗑 Profili Sil",
+        "cancel": "Kayıt iptal edildi."
+    },
+    "az": {
+        "welcome": "Xoş gəldiniz! Zəhmət olmasa dil seçin:",
+        "reg_name": "Gəlin profilinizi yaradaq.\n\nZəhmət olmasa **Adınızı** daxil edin:",
+        "reg_age": "Zəhmət olmasa **Yaşınızı** daxil edin:",
+        "age_error": "Zəhmət olmasa yaşınız üçün düzgün rəqəm daxil edin:",
+        "age_limit": "Təəssüf ki, botdan istifadə etmək üçün ən azı 16 yaşınız olmalıdır.",
+        "reg_location": "Yaşadığınız **Şəhər / Ünvanı** daxil edin:",
+        "gender_select": "Cinsinizi seçin:",
+        "looking_for": "Hansı cinslə tanış olmaq istəyirsiniz?",
+        "bio_prompt": "Özünüz və axtardığınız şəxs haqqında qısa **məlumat** yazın:",
+        "photo_prompt": "İndi isə profiliniz üçün **şəkil** göndərin:",
+        "profile_done": "🎉 Profil uğurla tamamlandı! İnsanlar səni belə görür:",
+        "already_registered": "Siz artıq qeydiyyatdan keçmisiniz! Profillərə baxmaq üçün /search yazın.",
+        "search_no_profile": "Zəhmət olmasa əvvəlcə /start yazaraq qeydiyyatdan keçin.",
+        "search_empty": "Hələ ki sizə uyğun yeni profil yoxdur. Bir az sonra yenidən cəhd edin!",
+        "match": "🎉 **Qarşılıqlı Bəyənmə!** {name} də sizi bəyəndi!\nƏlaqə: {contact}",
+        "edit": "✏️ Profili Redaktə Et",
+        "delete": "🗑 Profili Sil",
+        "cancel": "Qeydiyyat ləğv edildi."
+    }
+}
+
 # Database initialization
 def init_db():
     conn = sqlite3.connect('dating_bot.db')
@@ -24,7 +88,8 @@ def init_db():
             gender TEXT,
             looking_for TEXT,
             bio TEXT,
-            photo_id TEXT
+            photo_id TEXT,
+            language TEXT DEFAULT 'en'
         )
     ''')
     cursor.execute('''
@@ -39,8 +104,18 @@ def init_db():
 
 init_db()
 
+# Helper function to get text based on user language
+def get_text(user_id, key):
+    conn = sqlite3.connect('dating_bot.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT language FROM users WHERE user_id = ?', (user_id,))
+    res = cursor.fetchone()
+    conn.close()
+    lang = res[0] if res and res[0] in LANGUAGES else 'en'
+    return LANGUAGES[lang].get(key, LANGUAGES['en'][key])
+
 # Registration States
-NAME, AGE, LOCATION, GENDER, LOOKING_FOR, BIO, PHOTO = range(7)
+LANG_SELECT, NAME, AGE, LOCATION, GENDER, LOOKING_FOR, BIO, PHOTO = range(8)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -51,77 +126,111 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     if user:
-        await update.message.reply_text(
-            "You are already registered! Use /search to browse profiles or /myprofile to manage your profile."
-        )
+        text = get_text(user_id, "already_registered")
+        await update.message.reply_text(text)
         return ConversationHandler.END
 
-    await update.message.reply_text("Welcome! Let's set up your profile.\n\nPlease enter your **Name**:")
+    keyboard = [
+        [
+            InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
+            InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"),
+            InlineKeyboardButton("🇦🇿 Azərbaycan", callback_data="lang_az")
+        ]
+    ]
+    await update.message.reply_text(
+        "Welcome! Please choose your language / Dil seçin / Dil seçimi:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return LANG_SELECT
+
+async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = query.data.split("_")[1] # en, tr, az
+    context.user_data['language'] = lang
+    user_id = query.from_user.id
+
+    # Temporary save language to db so helper works
+    conn = sqlite3.connect('dating_bot.db')
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR REPLACE INTO users (user_id, language) VALUES (?, ?)', (user_id, lang))
+    conn.commit()
+    conn.close()
+
+    await query.message.delete()
+    await context.bot.send_message(chat_id=user_id, text=get_text(user_id, "reg_name"))
     return NAME
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     context.user_data['name'] = update.message.text
-    await update.message.reply_text("Please enter your **Age**:")
+    await update.message.reply_text(get_text(user_id, "reg_age"))
     return AGE
 
 async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     text = update.message.text
     if not text.isdigit():
-        await update.message.reply_text("Please enter a valid number for your age:")
+        await update.message.reply_text(get_text(user_id, "age_error"))
         return AGE
     
     age = int(text)
     if age < 16:
-        await update.message.reply_text("Sorry, you must be at least 16 years old to use this bot.")
+        await update.message.reply_text(get_text(user_id, "age_limit"))
         return ConversationHandler.END
 
     context.user_data['age'] = age
-    await update.message.reply_text("Please enter your **City / Location**:")
+    await update.message.reply_text(get_text(user_id, "reg_location"))
     return LOCATION
 
 async def get_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     context.user_data['location'] = update.message.text
     
-    keyboard = [["👨 Male", "👩 Female", "⚧ Other"]]
+    keyboard = [["👨 Male / Erkek", "👩 Female / Kadın", "⚧ Other / Diğer"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     
-    await update.message.reply_text("Select your **Gender**:", reply_markup=reply_markup)
+    await update.message.reply_text(get_text(user_id, "gender_select"), reply_markup=reply_markup)
     return GENDER
 
 async def get_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     context.user_data['gender'] = update.message.text
     
-    keyboard = [["👨 Men", "👩 Women", "🌈 Everyone"]]
+    keyboard = [["👨 Men / Erkekler", "👩 Women / Kadınlar", "🌈 Everyone / Herkes"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     
-    await update.message.reply_text("Who are you looking to meet?", reply_markup=reply_markup)
+    await update.message.reply_text(get_text(user_id, "looking_for"), reply_markup=reply_markup)
     return LOOKING_FOR
 
 async def get_looking_for(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     context.user_data['looking_for'] = update.message.text
     
     await update.message.reply_text(
-        "Write a short **Bio** about yourself and what you are looking for:",
+        get_text(user_id, "bio_prompt"),
         reply_markup=ReplyKeyboardRemove()
     )
     return BIO
 
 async def get_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     context.user_data['bio'] = update.message.text
-    await update.message.reply_text("Now, please send a **photo** for your profile:")
+    await update.message.reply_text(get_text(user_id, "photo_prompt"))
     return PHOTO
 
 async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_file = update.message.photo[-1].file_id
     user = update.effective_user
+    user_id = user.id
+    lang = context.user_data.get('language', 'en')
     
     conn = sqlite3.connect('dating_bot.db')
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO users (user_id, username, name, age, location, gender, looking_for, bio, photo_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        UPDATE users SET username=?, name=?, age=?, location=?, gender=?, looking_for=?, bio=?, photo_id=?, language=?
+        WHERE user_id=?
     ''', (
-        user.id,
         user.username or "Private",
         context.user_data['name'],
         context.user_data['age'],
@@ -129,86 +238,29 @@ async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['gender'],
         context.user_data['looking_for'],
         context.user_data['bio'],
-        photo_file
+        photo_file,
+        lang,
+        user_id
     ))
     conn.commit()
     conn.close()
 
-    await update.message.reply_text("🎉 Profile completed successfully! Here is how people see you:")
+    await update.message.reply_text(get_text(user_id, "profile_done"))
     
-    # Send preview to the user
     caption = f"👤 **{context.user_data['name']}**, {context.user_data['age']}\n📍 {context.user_data['location']}\n\n📝 {context.user_data['bio']}"
     keyboard = [
         [
-            InlineKeyboardButton("✏️ Edit Profile", callback_data="edit_profile"),
-            InlineKeyboardButton("🗑 Delete Profile", callback_data="delete_profile")
+            InlineKeyboardButton(get_text(user_id, "edit"), callback_data="edit_profile"),
+            InlineKeyboardButton(get_text(user_id, "delete"), callback_data="delete_profile")
         ]
     ]
     await update.message.reply_photo(photo=photo_file, caption=caption, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Registration cancelled.", reply_markup=ReplyKeyboardRemove())
-    return ConversationHandler.END
-
-# My Profile Management (/myprofile)
-async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    conn = sqlite3.connect('dating_bot.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT name, age, location, gender, looking_for, bio, photo_id FROM users WHERE user_id = ?', (user_id,))
-    user = cursor.fetchone()
-    conn.close()
-
-    if not user:
-        await update.message.reply_text("You haven't registered yet! Type /start to create a profile.")
-        return
-
-    name, age, loc, gender, looking_for, bio, photo_id = user
-    caption = f"👤 **{name}**, {age}\n📍 {loc}\nGender: {gender} | Looking for: {looking_for}\n\n📝 {bio}"
-    
-    keyboard = [
-        [
-            InlineKeyboardButton("✏️ Edit Profile", callback_data="edit_profile"),
-            InlineKeyboardButton("🗑 Delete Profile", callback_data="delete_profile")
-        ]
-    ]
-    
-    await update.message.reply_photo(
-        photo=photo_id, 
-        caption=f"Your Profile:\n\n{caption}", 
-        parse_mode="Markdown", 
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-# Profile Action Handler (Edit / Delete)
-async def handle_profile_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    if query.data == "delete_profile":
-        conn = sqlite3.connect('dating_bot.db')
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
-        cursor.execute('DELETE FROM likes WHERE from_user_id = ? OR to_user_id = ?', (user_id, user_id))
-        conn.commit()
-        conn.close()
-
-        await query.message.delete()
-        await context.bot.send_message(chat_id=user_id, text="🗑 Your profile has been deleted. Type /start to register again.")
-
-    elif query.data == "edit_profile":
-        conn = sqlite3.connect('dating_bot.db')
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
-        conn.commit()
-        conn.close()
-
-        await query.message.delete()
-        await context.bot.send_message(chat_id=user_id, text="Let's update your profile! Please enter your new **Name**:")
-        # Return state for registration starting from NAME
-        return NAME
+    await update.message.reply_text(get_text(user_id, "cancel"), reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
 
 # Search & Matchmaking
 async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -220,7 +272,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_user = cursor.fetchone()
     
     if not current_user:
-        await update.message.reply_text("Please register first by typing /start.")
+        await update.message.reply_text("Please register first / Lütfen kayıt olun / Qeydiyyatdan keçin.")
         conn.close()
         return
 
@@ -234,10 +286,10 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     '''
     params = [user_id, user_id]
 
-    if my_preference == "👨 Men":
-        query += " AND gender = '👨 Male'"
-    elif my_preference == "👩 Women":
-        query += " AND gender = '👩 Female'"
+    if my_preference and "Men" in my_preference or "Erkekler" in my_preference:
+        query += " AND (gender LIKE '%Male%' OR gender LIKE '%Erkek%')"
+    elif my_preference and "Women" in my_preference or "Kadınlar" in my_preference:
+        query += " AND (gender LIKE '%Female%' OR gender LIKE '%Kadın%')"
 
     query += " LIMIT 1"
 
@@ -246,7 +298,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     if not profile:
-        await update.message.reply_text("No new profiles found right now. Check back later!")
+        await update.message.reply_text(get_text(user_id, "search_empty"))
         return
 
     p_id, name, age, loc, bio, photo_id = profile
@@ -268,8 +320,28 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     data = query.data
-    if data.startswith("edit_profile") or data.startswith("delete_profile"):
-        return await handle_profile_action(update, context)
+    user_id = query.from_user.id
+
+    if data == "delete_profile":
+        conn = sqlite3.connect('dating_bot.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
+        cursor.execute('DELETE FROM likes WHERE from_user_id = ? OR to_user_id = ?', (user_id, user_id))
+        conn.commit()
+        conn.close()
+        await query.message.delete()
+        await context.bot.send_message(chat_id=user_id, text="Profile deleted / Profil silindi. /start")
+        return
+
+    elif data == "edit_profile":
+        conn = sqlite3.connect('dating_bot.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
+        conn.commit()
+        conn.close()
+        await query.message.delete()
+        await context.bot.send_message(chat_id=user_id, text="Please type /start to register again.")
+        return
 
     action, target_id = data.split("_")
     target_id = int(target_id)
@@ -286,23 +358,21 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_match = cursor.fetchone()
 
         if is_match:
-            cursor.execute('SELECT username, name FROM users WHERE user_id = ?', (target_id,))
+            cursor.execute('SELECT username, name, language FROM users WHERE user_id = ?', (target_id,))
             target_user = cursor.fetchone()
             
-            cursor.execute('SELECT username, name FROM users WHERE user_id = ?', (from_id,))
+            cursor.execute('SELECT username, name, language FROM users WHERE user_id = ?', (from_id,))
             from_user = cursor.fetchone()
 
             target_link = f"@{target_user[0]}" if target_user[0] != "Private" else target_user[1]
             from_link = f"@{from_user[0]}" if from_user[0] != "Private" else from_user[1]
 
-            await context.bot.send_message(
-                chat_id=from_id, 
-                text=f"🎉 **It's a Match!** {target_user[1]} liked you back!\nContact: {target_link}"
-            )
-            await context.bot.send_message(
-                chat_id=target_id, 
-                text=f"🎉 **It's a Match!** {from_user[1]} liked you back!\nContact: {from_link}"
-            )
+            # Send messages in their respective languages
+            t_text = LANGUAGES.get(target_user[2], LANGUAGES['en'])["match"].format(name=from_user[1], contact=from_link)
+            f_text = LANGUAGES.get(from_user[2], LANGUAGES['en'])["match"].format(name=target_user[1], contact=target_link)
+
+            await context.bot.send_message(chat_id=from_id, text=f_text)
+            await context.bot.send_message(chat_id=target_id, text=t_text)
 
     elif action == "skip":
         cursor.execute('INSERT OR IGNORE INTO likes (from_user_id, to_user_id) VALUES (?, ?)', (from_id, target_id))
@@ -315,7 +385,6 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     TOKEN = os.getenv("BOT_TOKEN")
-    
     if not TOKEN:
         raise ValueError("BOT_TOKEN environment variable is missing!")
 
@@ -324,6 +393,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
+            LANG_SELECT: [CallbackQueryHandler(language_chosen, pattern="^lang_")],
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
             AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
             LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_location)],
@@ -336,11 +406,10 @@ def main():
     )
 
     app.add_handler(conv_handler)
-    app.add_handler(CommandHandler('myprofile', my_profile))
     app.add_handler(CommandHandler('search', search))
     app.add_handler(CallbackQueryHandler(handle_action))
 
-    print("Bot started successfully...")
+    print("Bot started successfully with multi-language support...")
     app.run_polling()
 
 if __name__ == '__main__':
