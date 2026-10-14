@@ -1,15 +1,15 @@
 import logging
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+import sqlite3
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
     ConversationHandler, filters, ContextTypes
 )
-import sqlite3
 
-# Logging konfiqurasiyası
+# Logging configuration
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# Məlumat bazasını qurmaq
+# Database initialization
 def init_db():
     conn = sqlite3.connect('dating_bot.db')
     cursor = conn.cursor()
@@ -20,8 +20,9 @@ def init_db():
             name TEXT,
             age INTEGER,
             location TEXT,
-            photo_id TEXT,
-            gender TEXT
+            gender TEXT,
+            looking_for TEXT,
+            photo_id TEXT
         )
     ''')
     cursor.execute('''
@@ -36,8 +37,8 @@ def init_db():
 
 init_db()
 
-# State-lər (Mərhələlər)
-NAME, AGE, LOCATION, PHOTO, GENDER = range(5)
+# Registration States
+NAME, AGE, LOCATION, GENDER, LOOKING_FOR, PHOTO = range(6)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -48,41 +49,59 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     if user:
-        await update.message.reply_text("Siz artıq qeydiyyatdan keçmisiniz! Profillərə baxmaq üçün /search yazın.")
+        await update.message.reply_text("You are already registered! Use /search to browse profiles.")
         return ConversationHandler.END
 
-    await update.message.reply_text("Xoş gəldiniz! Qeydiyyat üçün adınızı daxil edin:")
+    await update.message.reply_text("Welcome! Let's set up your profile.\n\nPlease enter your **Name**:")
     return NAME
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['name'] = update.message.text
-    await update.message.reply_text("Yaşınızı daxil edin:")
+    await update.message.reply_text("Please enter your **Age**:")
     return AGE
 
 async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if not text.isdigit():
-        await update.message.reply_text("Xahiş olunur yalnız rəqəm daxil edin:")
+        await update.message.reply_text("Please enter a valid number for your age:")
         return AGE
     
     age = int(text)
     if age < 16:
-        await update.message.reply_text("Təəssüf ki, 16 yaşdan aşağı şəxslərin qeydiyyatına icazə verilmir.")
+        await update.message.reply_text("Sorry, you must be at least 16 years old to use this bot.")
         return ConversationHandler.END
 
     context.user_data['age'] = age
-    await update.message.reply_text("Yaşadığınız şəhər/ünvanı daxil edin:")
+    await update.message.reply_text("Please enter your **City / Location**:")
     return LOCATION
 
 async def get_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['location'] = update.message.text
-    keyboard = [["Kişi", "Qadın"]]
-    await update.message.reply_text("Cinsinizi seçin:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+    
+    # Gender selection keyboard
+    keyboard = [["👨 Male", "👩 Female", "⚧ Other"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    
+    await update.message.reply_text("Select your **Gender**:", reply_markup=reply_markup)
     return GENDER
 
 async def get_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['gender'] = update.message.text
-    await update.message.reply_text("İndi isə şəklinizi göndərin:")
+    
+    # Looking for selection keyboard
+    keyboard = [["👨 Men", "👩 Women", "🌈 Everyone"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    
+    await update.message.reply_text("Who are you looking to meet?", reply_markup=reply_markup)
+    return LOOKING_FOR
+
+async def get_looking_for(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['looking_for'] = update.message.text
+    
+    await update.message.reply_text(
+        "Please send a photo for your profile:",
+        reply_markup=ReplyKeyboardRemove()
+    )
     return PHOTO
 
 async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -92,72 +111,83 @@ async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect('dating_bot.db')
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO users (user_id, username, name, age, location, photo_id, gender)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO users (user_id, username, name, age, location, gender, looking_for, photo_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user.id,
-        user.username or "Gizli",
+        user.username or "Private",
         context.user_data['name'],
         context.user_data['age'],
         context.user_data['location'],
-        photo_file,
-        context.user_data['gender']
+        context.user_data['gender'],
+        context.user_data['looking_for'],
+        photo_file
     ))
     conn.commit()
     conn.close()
 
-    await update.message.reply_text("Təbriklər! Profili tamamladınız. Əks cinsin profillərinə baxmaq üçün /search yazın.")
+    await update.message.reply_text("🎉 Profile completed successfully! Use /search to start browsing profiles.")
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Qeydiyyat ləğv edildi.")
+    await update.message.reply_text("Registration cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# Profillərə baxmaq
+# Search & Matchmaking
 async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     conn = sqlite3.connect('dating_bot.db')
     cursor = conn.cursor()
     
-    # Cari istifadəçini tapırıq
-    cursor.execute('SELECT gender FROM users WHERE user_id = ?', (user_id,))
+    # Get current user profile
+    cursor.execute('SELECT gender, looking_for FROM users WHERE user_id = ?', (user_id,))
     current_user = cursor.fetchone()
+    
     if not current_user:
-        await update.message.reply_text("Lütfən əvvəlcə /start yazaraq qeydiyyatdan keçin.")
+        await update.message.reply_text("Please register first by typing /start.")
         conn.close()
         return
 
-    target_gender = "Qadın" if current_user[0] == "Kişi" else "Kişi"
-    
-    # Hələ bəyənmədiyi və ya keçmədiyi profilləri tapırıq
-    cursor.execute('''
+    my_gender, my_preference = current_user
+
+    # Filter query based on gender preferences
+    query = '''
         SELECT user_id, name, age, location, photo_id FROM users 
-        WHERE gender = ? AND user_id != ? AND user_id NOT IN (
+        WHERE user_id != ? AND user_id NOT IN (
             SELECT to_user_id FROM likes WHERE from_user_id = ?
-        ) LIMIT 1
-    ''', (target_gender, user_id, user_id))
-    
+        )
+    '''
+    params = [user_id, user_id]
+
+    if my_preference == "👨 Men":
+        query += " AND gender = '👨 Male'"
+    elif my_preference == "👩 Women":
+        query += " AND gender = '👩 Female'"
+
+    query += " LIMIT 1"
+
+    cursor.execute(query, params)
     profile = cursor.fetchone()
     conn.close()
 
     if not profile:
-        await update.message.reply_text("Hələ ki sizə uyğun yeni profil yoxdur. Bir az sonra yenidən cəhd edin!")
+        await update.message.reply_text("No new profiles found right now. Check back later!")
         return
 
     p_id, name, age, loc, photo_id = profile
-    caption = f"👤 {name}, {age}\n📍 {loc}"
+    caption = f"👤 **{name}**, {age}\n📍 {loc}"
     
     keyboard = [
         [
-            InlineKeyboardButton("❤️ Bəyən", callback_data=f"like_{p_id}"),
-            InlineKeyboardButton("❌ Keç", callback_data=f"skip_{p_id}")
+            InlineKeyboardButton("❤️ Like", callback_data=f"like_{p_id}"),
+            InlineKeyboardButton("❌ Skip", callback_data=f"skip_{p_id}")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await context.bot.send_photo(chat_id=user_id, photo=photo_id, caption=caption, reply_markup=reply_markup)
+    await context.bot.send_photo(chat_id=user_id, photo=photo_id, caption=caption, parse_mode="Markdown", reply_markup=reply_markup)
 
-# Bəyənmə/Keçmə Callback Handler
+# Like / Skip Handler
 async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -170,49 +200,43 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor = conn.cursor()
 
     if action == "like":
-        # Likes cədvəlinə əlavə edirik
         cursor.execute('INSERT OR IGNORE INTO likes (from_user_id, to_user_id) VALUES (?, ?)', (from_id, target_id))
         conn.commit()
 
-        # Qarşılıqlı bəyənməni yoxlayırıq
+        # Check for mutual match
         cursor.execute('SELECT * FROM likes WHERE from_user_id = ? AND to_user_id = ?', (target_id, from_id))
         is_match = cursor.fetchone()
 
         if is_match:
-            # Qarşı tərəfin istifadəçi adını alırıq
             cursor.execute('SELECT username, name FROM users WHERE user_id = ?', (target_id,))
             target_user = cursor.fetchone()
             
             cursor.execute('SELECT username, name FROM users WHERE user_id = ?', (from_id,))
             from_user = cursor.fetchone()
 
-            target_username = f"@{target_user[0]}" if target_user[0] != "Gizli" else target_user[1]
-            from_username = f"@{from_user[0]}" if from_user[0] != "Gizli" else from_user[1]
+            target_link = f"@{target_user[0]}" if target_user[0] != "Private" else target_user[1]
+            from_link = f"@{from_user[0]}" if from_user[0] != "Private" else from_user[1]
 
-            # Hər iki tərəfə bildiriş veririk
             await context.bot.send_message(
                 chat_id=from_id, 
-                text=f"🎉 Qarşılıqlı Bəyənmə! {target_user[1]} də sizi bəyəndi!\nYazışmaq üçün: {target_username}"
+                text=f"🎉 **It's a Match!** {target_user[1]} liked you back!\nContact: {target_link}"
             )
             await context.bot.send_message(
                 chat_id=target_id, 
-                text=f"🎉 Qarşılıqlı Bəyənmə! {from_user[1]} də sizi bəyəndi!\nYazışmaq üçün: {from_username}"
+                text=f"🎉 **It's a Match!** {from_user[1]} liked you back!\nContact: {from_link}"
             )
 
     elif action == "skip":
-        # Sadece keçi qeyd etmək üçün də istifadə oluna bilər
         cursor.execute('INSERT OR IGNORE INTO likes (from_user_id, to_user_id) VALUES (?, ?)', (from_id, target_id))
         conn.commit()
 
     conn.close()
     
-    # Köhnə mesajı silirik və növbəti profili göstəririk
     await query.message.delete()
     await search(update, context)
 
 def main():
-    # BotFather-dən aldığınız Tokeni bura yazın
-    TOKEN = "8816146283:AAEwHKdv7K7DFbPBzTH21qcoEOvqbkglPY4"
+    TOKEN = "BURAYA_BOTFATHER_TOKENINIZI_YAZIN"
     
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -223,6 +247,7 @@ def main():
             AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
             LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_location)],
             GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_gender)],
+            LOOKING_FOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_looking_for)],
             PHOTO: [MessageHandler(filters.PHOTO, get_photo)],
         },
         fallbacks=[CommandHandler('cancel', cancel)]
@@ -232,7 +257,7 @@ def main():
     app.add_handler(CommandHandler('search', search))
     app.add_handler(CallbackQueryHandler(handle_action))
 
-    print("Bot işə düşdü...")
+    print("Bot started successfully...")
     app.run_polling()
 
 if __name__ == '__main__':
