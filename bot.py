@@ -1,4 +1,5 @@
 import logging
+import os
 import sqlite3
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -236,8 +237,12 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await search(update, context)
 
 def main():
-    TOKEN = "BURAYA_BOTFATHER_TOKENINIZI_YAZIN"
+    # Token birbaşa sistem mühitindən (Environment Variables) oxunur
+    TOKEN = os.getenv("BOT_TOKEN")
     
+    if not TOKEN:
+        raise ValueError("BOT_TOKEN environment variable is missing!")
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(
