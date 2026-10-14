@@ -10,8 +10,27 @@ from telegram.ext import (
 # Logging configuration
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# Translations Dictionary
+# Translations Dictionary for 5 Languages
 LANGUAGES = {
+    "az": {
+        "welcome": "Xoş gəldiniz! Zəhmət olmasa dil seçin:",
+        "reg_name": "Gəlin profilinizi yaradaq.\n\nZəhmət olmasa **Adınızı** daxil edin:",
+        "reg_age": "Zəhmət olmasa **Yaşınızı** daxil edin:",
+        "age_error": "Zəhmət olmasa yaşınız üçün düzgün rəqəm daxil edin:",
+        "age_limit": "Təəssüf ki, botdan istifadə etmək üçün ən azı 16 yaşınız olmalıdır.",
+        "reg_location": "Yaşadığınız **Şəhər / Ünvanı** daxil edin:",
+        "gender_select": "Cinsinizi seçin:",
+        "looking_for": "Hansı cinslə tanış olmaq istəyirsiniz?",
+        "bio_prompt": "Özünüz və axtardığınız şəxs haqqında qısa **məlumat** yazın:",
+        "photo_prompt": "İndi isə profiliniz üçün **şəkil** göndərin:",
+        "profile_done": "🎉 Profil uğurla tamamlandı! İnsanlar səni belə görür:",
+        "already_registered": "Siz artıq qeydiyyatdan keçmisiniz! Profillərə baxmaq üçün /search yazın və ya profilinizi idarə etmək üçün /myprofile yazın.",
+        "search_empty": "Hələ ki sizə uyğun yeni profil yoxdur. Bir az sonra yenidən cəhd edin!",
+        "match": "🎉 **Qarşılıqlı Bəyənmə!** {name} də sizi bəyəndi!\nƏlaqə: {contact}",
+        "edit": "✏️ Profili Redaktə Et",
+        "delete": "🗑 Profili Sil",
+        "cancel": "Qeydiyyat ləğv edildi."
+    },
     "en": {
         "welcome": "Welcome! Please choose your language:",
         "reg_name": "Let's set up your profile.\n\nPlease enter your **Name**:",
@@ -25,12 +44,30 @@ LANGUAGES = {
         "photo_prompt": "Now, please send a **photo** for your profile:",
         "profile_done": "🎉 Profile completed successfully! Here is how people see you:",
         "already_registered": "You are already registered! Use /search to browse profiles or /myprofile to manage your profile.",
-        "search_no_profile": "Please register first by typing /start.",
         "search_empty": "No new profiles found right now. Check back later!",
         "match": "🎉 **It's a Match!** {name} liked you back!\nContact: {contact}",
         "edit": "✏️ Edit Profile",
         "delete": "🗑 Delete Profile",
         "cancel": "Registration cancelled."
+    },
+    "ru": {
+        "welcome": "Добро пожаловать! Пожалуйста, выберите язык:",
+        "reg_name": "Давайте создадим ваш профиль.\n\nПожалуйста, введите ваше **Имя**:",
+        "reg_age": "Пожалуйста, введите ваш **Возраст**:",
+        "age_error": "Пожалуйста, введите корректное число для возраста:",
+        "age_limit": "Извините, вам должно быть не менее 16 лет для использования бота.",
+        "reg_location": "Укажите ваш **Город / Местоположение**:",
+        "gender_select": "Выберите ваш **Пол**:",
+        "looking_for": "Кого вы ищете?",
+        "bio_prompt": "Напишите краткую **информацию о себе** и кого вы ищете:",
+        "photo_prompt": "Теперь отправьте **фотографию** для профиля:",
+        "profile_done": "🎉 Профиль успешно создан! Вот как вас видят другие:",
+        "already_registered": "Вы уже зарегистрированы! Используйте /search для поиска или /myprofile для управления профилем.",
+        "search_empty": "Новых профилей пока нет. Попробуйте позже!",
+        "match": "🎉 **У вас совпадение!** {name} ответил(а) взаимностью!\nКонтакты: {contact}",
+        "edit": "✏️ Редактировать профиль",
+        "delete": "🗑 Удалить профиль",
+        "cancel": "Регистрация отменена."
     },
     "tr": {
         "welcome": "Hoş geldiniz! Lütfen dil seçin:",
@@ -45,32 +82,30 @@ LANGUAGES = {
         "photo_prompt": "Şimdi profiliniz için bir **fotoğraf** gönderin:",
         "profile_done": "🎉 Profil başarıyla tamamlandı! İnsanlar seni böyle görüyor:",
         "already_registered": "Zaten kayıtlısınız! /search ile profillere göz atın veya /myprofile ile profilinizi yönetin.",
-        "search_no_profile": "Lütfen önce /start yazarak kayıt olun.",
         "search_empty": "Şu an uygun yeni profil bulunamadı. Daha sonra tekrar deneyin!",
         "match": "🎉 **Eşleşme!** {name} de seni beğendi!\nİletişim: {contact}",
         "edit": "✏️ Profili Düzenle",
         "delete": "🗑 Profili Sil",
         "cancel": "Kayıt iptal edildi."
     },
-    "az": {
-        "welcome": "Xoş gəldiniz! Zəhmət olmasa dil seçin:",
-        "reg_name": "Gəlin profilinizi yaradaq.\n\nZəhmət olmasa **Adınızı** daxil edin:",
-        "reg_age": "Zəhmət olmasa **Yaşınızı** daxil edin:",
-        "age_error": "Zəhmət olmasa yaşınız üçün düzgün rəqəm daxil edin:",
-        "age_limit": "Təəssüf ki, botdan istifadə etmək üçün ən azı 16 yaşınız olmalıdır.",
-        "reg_location": "Yaşadığınız **Şəhər / Ünvanı** daxil edin:",
-        "gender_select": "Cinsinizi seçin:",
-        "looking_for": "Hansı cinslə tanış olmaq istəyirsiniz?",
-        "bio_prompt": "Özünüz və axtardığınız şəxs haqqında qısa **məlumat** yazın:",
-        "photo_prompt": "İndi isə profiliniz üçün **şəkil** göndərin:",
-        "profile_done": "🎉 Profil uğurla tamamlandı! İnsanlar səni belə görür:",
-        "already_registered": "Siz artıq qeydiyyatdan keçmisiniz! Profillərə baxmaq üçün /search yazın.",
-        "search_no_profile": "Zəhmət olmasa əvvəlcə /start yazaraq qeydiyyatdan keçin.",
-        "search_empty": "Hələ ki sizə uyğun yeni profil yoxdur. Bir az sonra yenidən cəhd edin!",
-        "match": "🎉 **Qarşılıqlı Bəyənmə!** {name} də sizi bəyəndi!\nƏlaqə: {contact}",
-        "edit": "✏️ Profili Redaktə Et",
-        "delete": "🗑 Profili Sil",
-        "cancel": "Qeydiyyat ləğv edildi."
+    "id": {
+        "welcome": "Selamat datang! Silakan pilih bahasa Anda:",
+        "reg_name": "Mari buat profil Anda.\n\nSilakan masukkan **Nama** Anda:",
+        "reg_age": "Silakan masukkan **Usia** Anda:",
+        "age_error": "Silakan masukkan angka usia yang valid:",
+        "age_limit": "Maaf, Anda harus berusia minimal 16 tahun untuk menggunakan bot ini.",
+        "reg_location": "Silakan masukkan **Kota / Lokasi** Anda:",
+        "gender_select": "Pilih **Jenis Kelamin** Anda:",
+        "looking_for": "Siapa yang ingin Anda temui?",
+        "bio_prompt": "Tulis **Bio** singkat tentang diri Anda dan apa yang Anda cari:",
+        "photo_prompt": "Sekarang, silakan kirim **foto** untuk profil Anda:",
+        "profile_done": "🎉 Profil berhasil dibuat! Begini tampilan profil Anda untuk orang lain:",
+        "already_registered": "Anda sudah terdaftar! Gunakan /search untuk mencari atau /myprofile untuk mengelola profil.",
+        "search_empty": "Tidak ada profil baru saat ini. Coba lagi nanti!",
+        "match": "🎉 **Cocok!** {name} menyukai Anda kembali!\nKontak: {contact}",
+        "edit": "✏️ Edit Profil",
+        "delete": "🗑 Hapus Profil",
+        "cancel": "Pendaftaran dibatalkan."
     }
 }
 
@@ -131,14 +166,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     keyboard = [
-        [
-            InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
-            InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"),
-            InlineKeyboardButton("🇦🇿 Azərbaycan", callback_data="lang_az")
-        ]
+        [InlineKeyboardButton("🇦🇿 Azərbaycan", callback_data="lang_az")],
+        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")],
+        [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
+        [InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr")],
+        [InlineKeyboardButton("🇮🇩 Bahasa Indonesia", callback_data="lang_id")]
     ]
     await update.message.reply_text(
-        "Welcome! Please choose your language / Dil seçin / Dil seçimi:",
+        "Please choose your language / Dil seçin / Выберите язык / Pilih bahasa:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return LANG_SELECT
@@ -146,11 +181,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    lang = query.data.split("_")[1] # en, tr, az
+    lang = query.data.split("_")[1] # az, en, ru, tr, id
     context.user_data['language'] = lang
     user_id = query.from_user.id
 
-    # Temporary save language to db so helper works
     conn = sqlite3.connect('dating_bot.db')
     cursor = conn.cursor()
     cursor.execute('INSERT OR REPLACE INTO users (user_id, language) VALUES (?, ?)', (user_id, lang))
@@ -187,7 +221,7 @@ async def get_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     context.user_data['location'] = update.message.text
     
-    keyboard = [["👨 Male / Erkek", "👩 Female / Kadın", "⚧ Other / Diğer"]]
+    keyboard = [["👨 Male / Kişi / Мужчина / Erkek / Pria"], ["👩 Female / Qadın / Женщина / Kadın / Wanita"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     
     await update.message.reply_text(get_text(user_id, "gender_select"), reply_markup=reply_markup)
@@ -197,7 +231,11 @@ async def get_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     context.user_data['gender'] = update.message.text
     
-    keyboard = [["👨 Men / Erkekler", "👩 Women / Kadınlar", "🌈 Everyone / Herkes"]]
+    keyboard = [
+        ["👨 Men / Kişilər / Мужчины / Erkekler / Pria"],
+        ["👩 Women / Qadınlar / Женщины / Kadınlar / Wanita"],
+        ["🌈 Everyone / Hər kəs / Все / Herkes / Semua"]
+    ]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     
     await update.message.reply_text(get_text(user_id, "looking_for"), reply_markup=reply_markup)
@@ -262,6 +300,63 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(get_text(user_id, "cancel"), reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
+# My Profile Management (/myprofile)
+async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    conn = sqlite3.connect('dating_bot.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT name, age, location, gender, looking_for, bio, photo_id FROM users WHERE user_id = ?', (user_id,))
+    user = cursor.fetchone()
+    conn.close()
+
+    if not user:
+        await update.message.reply_text("You haven't registered yet! Type /start to create a profile.")
+        return
+
+    name, age, loc, gender, looking_for, bio, photo_id = user
+    caption = f"👤 **{name}**, {age}\n📍 {loc}\nGender: {gender} | Looking for: {looking_for}\n\n📝 {bio}"
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(get_text(user_id, "edit"), callback_data="edit_profile"),
+            InlineKeyboardButton(get_text(user_id, "delete"), callback_data="delete_profile")
+        ]
+    ]
+    
+    await update.message.reply_photo(
+        photo=photo_id, 
+        caption=caption, 
+        parse_mode="Markdown", 
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# Profile Action Handler (Edit / Delete)
+async def handle_profile_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    if query.data == "delete_profile":
+        conn = sqlite3.connect('dating_bot.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
+        cursor.execute('DELETE FROM likes WHERE from_user_id = ? OR to_user_id = ?', (user_id, user_id))
+        conn.commit()
+        conn.close()
+
+        await query.message.delete()
+        await context.bot.send_message(chat_id=user_id, text="🗑 Profile deleted. Type /start to register again.")
+
+    elif query.data == "edit_profile":
+        conn = sqlite3.connect('dating_bot.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
+        conn.commit()
+        conn.close()
+
+        await query.message.delete()
+        await context.bot.send_message(chat_id=user_id, text="Let's update your profile! Please type /start to begin.")
+
 # Search & Matchmaking
 async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -272,7 +367,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_user = cursor.fetchone()
     
     if not current_user:
-        await update.message.reply_text("Please register first / Lütfen kayıt olun / Qeydiyyatdan keçin.")
+        await update.message.reply_text("Please register first by typing /start.")
         conn.close()
         return
 
@@ -286,10 +381,10 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     '''
     params = [user_id, user_id]
 
-    if my_preference and "Men" in my_preference or "Erkekler" in my_preference:
-        query += " AND (gender LIKE '%Male%' OR gender LIKE '%Erkek%')"
-    elif my_preference and "Women" in my_preference or "Kadınlar" in my_preference:
-        query += " AND (gender LIKE '%Female%' OR gender LIKE '%Kadın%')"
+    if my_preference and any(word in my_preference for word in ["Men", "Kişilər", "Мужчины", "Erkekler", "Pria"]):
+        query += " AND (gender LIKE '%Male%' OR gender LIKE '%Kişi%' OR gender LIKE '%Мужчина%' OR gender LIKE '%Erkek%' OR gender LIKE '%Pria%')"
+    elif my_preference and any(word in my_preference for word in ["Women", "Qadınlar", "Женщины", "Kadınlar", "Wanita"]):
+        query += " AND (gender LIKE '%Female%' OR gender LIKE '%Qadın%' OR gender LIKE '%Женщина%' OR gender LIKE '%Kadın%' OR gender LIKE '%Wanita%')"
 
     query += " LIMIT 1"
 
@@ -320,28 +415,8 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     data = query.data
-    user_id = query.from_user.id
-
-    if data == "delete_profile":
-        conn = sqlite3.connect('dating_bot.db')
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
-        cursor.execute('DELETE FROM likes WHERE from_user_id = ? OR to_user_id = ?', (user_id, user_id))
-        conn.commit()
-        conn.close()
-        await query.message.delete()
-        await context.bot.send_message(chat_id=user_id, text="Profile deleted / Profil silindi. /start")
-        return
-
-    elif data == "edit_profile":
-        conn = sqlite3.connect('dating_bot.db')
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
-        conn.commit()
-        conn.close()
-        await query.message.delete()
-        await context.bot.send_message(chat_id=user_id, text="Please type /start to register again.")
-        return
+    if data == "edit_profile" or data == "delete_profile":
+        return await handle_profile_action(update, context)
 
     action, target_id = data.split("_")
     target_id = int(target_id)
@@ -367,7 +442,6 @@ async def handle_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             target_link = f"@{target_user[0]}" if target_user[0] != "Private" else target_user[1]
             from_link = f"@{from_user[0]}" if from_user[0] != "Private" else from_user[1]
 
-            # Send messages in their respective languages
             t_text = LANGUAGES.get(target_user[2], LANGUAGES['en'])["match"].format(name=from_user[1], contact=from_link)
             f_text = LANGUAGES.get(from_user[2], LANGUAGES['en'])["match"].format(name=target_user[1], contact=target_link)
 
@@ -406,10 +480,11 @@ def main():
     )
 
     app.add_handler(conv_handler)
+    app.add_handler(CommandHandler('myprofile', my_profile))
     app.add_handler(CommandHandler('search', search))
     app.add_handler(CallbackQueryHandler(handle_action))
 
-    print("Bot started successfully with multi-language support...")
+    print("Bot started successfully...")
     app.run_polling()
 
 if __name__ == '__main__':
