@@ -3,6 +3,7 @@ import sqlite3
 import logging
 from pathlib import Path
 from storage import prepare_database
+from location_features import init_location, get_location, delete_location, distance_km, distance_label, location_command, location_off, location_message, DEFAULT_RADIUS_KM
 from html import escape
 from telegram import Update, InlineKeyboardButton as B, InlineKeyboardMarkup as K
 from telegram.constants import ParseMode
@@ -401,6 +402,7 @@ def remove(uid):
         c.execute('DELETE FROM reports WHERE from_id=? OR to_id=?',(uid,uid))
         c.execute('DELETE FROM profiles WHERE user_id=?',(uid,))
     delete_filters(conn, uid)
+    delete_location(conn, uid)
 
 def lang(context,uid=None):
     if uid is not None:
@@ -669,20 +671,35 @@ async def search_next(update,context):
     if not p['gender'] or not p['preference']:
         await context.bot.send_message(update.effective_chat.id,t(context,'need_preferences',uid));return
     min_age,max_age=get_age_range(conn,uid)
+    own_location=get_location(conn,uid)
     with conn() as c:
-        target=c.execute('''SELECT p.* FROM profiles p WHERE p.user_id!=? AND p.confirmed=1 AND p.active=1
+        candidates=c.execute('''SELECT p.* FROM profiles p WHERE p.user_id!=? AND p.confirmed=1 AND p.active=1
             AND p.photo IS NOT NULL AND p.age BETWEEN ? AND ? AND p.gender IS NOT NULL AND p.preference IS NOT NULL
             AND (?='everyone' OR p.gender=?)
             AND (p.preference='everyone' OR p.preference=?)
             AND NOT EXISTS (SELECT 1 FROM likes l WHERE l.from_id=? AND l.to_id=p.user_id)
             AND NOT EXISTS (SELECT 1 FROM skips s WHERE s.from_id=? AND s.to_id=p.user_id)
             AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.from_id=? AND b.to_id=p.user_id) OR (b.from_id=p.user_id AND b.to_id=?))
-            ORDER BY RANDOM() LIMIT 1''',(uid,min_age,max_age,p['preference'],p['preference'],p['gender'],uid,uid,uid,uid)).fetchone()
+            ORDER BY RANDOM()''',(uid,min_age,max_age,p['preference'],p['preference'],p['gender'],uid,uid,uid,uid)).fetchall()
+    target=None
+    shown_distance=None
+    if own_location is None:
+        target=candidates[0] if candidates else None
+    else:
+        for candidate in candidates:
+            candidate_location=get_location(conn,candidate['user_id'])
+            if candidate_location is None:
+                continue
+            km=distance_km(own_location,candidate_location)
+            if km<=DEFAULT_RADIUS_KM:
+                target=candidate
+                shown_distance=km
+                break
     if not target:
         context.user_data.pop('current_target',None)
         await context.bot.send_message(update.effective_chat.id,t(context,'nonefound',uid));return
     target_id=target['user_id'];context.user_data['current_target']=target_id
-    await context.bot.send_photo(update.effective_chat.id,target['photo'],caption=profile_caption(target,context),parse_mode=ParseMode.HTML,
+    await context.bot.send_photo(update.effective_chat.id,target['photo'],caption=profile_caption(target,context)+('\n'+distance_label(shown_distance,lang(context,uid)) if shown_distance is not None else ''),parse_mode=ParseMode.HTML,
         reply_markup=kb([[(t(context,'like',uid),f'act:like:{target_id}'),(t(context,'skip',uid),f'act:skip:{target_id}')],[(t(context,'block',uid),f'act:block:{target_id}'),(t(context,'report',uid),f'act:report:{target_id}')]]))
 
 async def search(update,context):
@@ -736,7 +753,7 @@ async def safety_cmd(update,context):
 
 async def help_cmd(update,context):
     uid=update.effective_user.id
-    await update.message.reply_text('/start /search /myprofile /edit /settings /safety /help\n/delete /pause /resume /cancel\n'+t(context,'pause_help',uid))
+    await update.message.reply_text('/start /search /filters /location /locationoff /myprofile /edit /settings /safety /help\n/delete /pause /resume /cancel\n'+t(context,'pause_help',uid))
 
 async def cancel(update,context):
     uid=update.effective_user.id;context.user_data.clear()
@@ -760,12 +777,14 @@ def main():
     prepare_database(DB)
     init_db()
     init_filters(conn)
+    init_location(conn)
     app=Application.builder().token(TOKEN).post_init(setup_menu).build()
-    for name,func in [('start',start),('search',search),('filters',age_filters_command),('profile',profile),('myprofile',profile),('edit',edit),('delete',delete),('help',help_cmd),('settings',settings_cmd),('safety',safety_cmd),('cancel',cancel),('pause',pause),('resume',resume)]:
+    for name,func in [('start',start),('search',search),('filters',age_filters_command),('location',lambda u,c: location_command(u,c,conn,lang)),('locationoff',lambda u,c: location_off(u,c,conn,lang)),('profile',profile),('myprofile',profile),('edit',edit),('delete',delete),('help',help_cmd),('settings',settings_cmd),('safety',safety_cmd),('cancel',cancel),('pause',pause),('resume',resume)]:
         app.add_handler(CommandHandler(name,func,filters=filters.ChatType.PRIVATE))
     register_admin(app, DB)
     app.add_handler(CallbackQueryHandler(callbacks))
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND & filters.ChatType.PRIVATE,messages))
+    app.add_handler(MessageHandler(filters.LOCATION & filters.ChatType.PRIVATE,lambda u,c: location_message(u,c,conn,lang)))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.LOCATION & ~filters.COMMAND & filters.ChatType.PRIVATE,messages))
     app.add_error_handler(error_handler)
     logging.info('TindraVen running')
     app.run_polling(allowed_updates=Update.ALL_TYPES)
