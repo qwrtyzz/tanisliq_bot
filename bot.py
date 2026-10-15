@@ -415,9 +415,18 @@ def t(context,key,uid=None):return T[lang(context,uid)].get(key,T['en'].get(key,
 
 def kb(rows):return K([[B(label,callback_data=data) for label,data in row] for row in rows])
 
+def is_official_admin(user_id):
+    # Admin status is based exclusively on the server-side ADMIN_ID.
+    admin_id = os.getenv('ADMIN_ID', '').strip()
+    return bool(admin_id and admin_id.isdecimal() and int(admin_id) == int(user_id))
+
 def profile_caption(p,context):
     x=T[p['language']] if p['language'] in T else T['en']
-    return ('<b>'+escape(str(p['name'] or ''))+'</b>, '+str(p['age'])+'\n'
+    official = is_official_admin(p['user_id'])
+    name = escape(str(p['name'] or ''))
+    title = ('👑 ' + name + '  ✅' if official else name)
+    badge = ('\n🛡️ <b>TindraVen Official Admin</b>' if official else '')
+    return ('<b>'+title+'</b>, '+str(p['age'])+badge+'\n'
             +escape(str(p['city'] or ''))+'\n'+escape(str(p['bio'] or x['none'])))
 
 async def show_preview(update,context):
