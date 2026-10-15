@@ -3,7 +3,7 @@ import sqlite3
 import logging
 from pathlib import Path
 from storage import prepare_database
-from location_features import init_location, get_location, delete_location, distance_km, distance_label, location_command, location_off, location_message, DEFAULT_RADIUS_KM
+from location_features import init_location, get_location, delete_location, distance_km, distance_label, location_command, location_off, location_message, DEFAULT_RADIUS_KM, choice_words, init_location_choice, get_mode, set_mode, delete_choice, share_keyboard
 from html import escape
 from telegram import Update, InlineKeyboardButton as B, InlineKeyboardMarkup as K
 from telegram.constants import ParseMode
@@ -403,6 +403,7 @@ def remove(uid):
         c.execute('DELETE FROM profiles WHERE user_id=?',(uid,))
     delete_filters(conn, uid)
     delete_location(conn, uid)
+    delete_choice(conn, uid)
 
 def lang(context,uid=None):
     if uid is not None:
@@ -450,7 +451,10 @@ async def start(update:Update,context:ContextTypes.DEFAULT_TYPE):
         return
     if p and p['name'] and p['age'] and p['city'] and p['photo']:
         # Profile exists but was not confirmed; resume at confirmation, don't duplicate.
-        await show_preview(update,context)
+        if get_mode(conn,uid)=='nearby' and get_location(conn,uid):
+            await show_preview(update,context)
+        else:
+            await ask_location_choice(update,context)
         return
     if p:
         # Incomplete profile: retain saved language and continue from first missing field.
@@ -476,6 +480,41 @@ async def start(update:Update,context:ContextTypes.DEFAULT_TYPE):
     context.user_data['step']='lang'
     await update.effective_message.reply_text(T['en']['welcome'],reply_markup=kb([[(v,'lang:'+k)] for k,v in LANGS.items()]))
 
+async def ask_location_choice(update,context):
+    uid=update.effective_user.id
+    code=lang(context,uid)
+    w=choice_words(code)
+    context.user_data['step']='location_choice'
+    await context.bot.send_message(update.effective_chat.id,w[0],reply_markup=kb([[(w[1],'locchoice:yes')],[(w[2],'locchoice:no')]]))
+
+async def request_location(update,context):
+    uid=update.effective_user.id
+    code=lang(context,uid)
+    context.user_data['step']='await_location'
+    await context.bot.send_message(update.effective_chat.id,choice_words(code)[3],reply_markup=share_keyboard(code))
+
+async def handle_location(update,context):
+    uid=update.effective_user.id
+    p=get(uid)
+    if not p or context.user_data.get('step')!='await_location':
+        await update.effective_message.reply_text('Use /location to choose your location preference first.')
+        return
+    loc=update.effective_message.location
+    if not loc or loc.live_period is not None:
+        await update.effective_message.reply_text('Please send a one-time location.');return
+    from location_features import save_location
+    try:
+        save_location(conn,uid,loc.latitude,loc.longitude)
+    except ValueError:
+        await update.effective_message.reply_text('Invalid location.');return
+    set_mode(conn,uid,'nearby')
+    from telegram import ReplyKeyboardRemove
+    await update.effective_message.reply_text(choice_words(lang(context,uid))[5],reply_markup=ReplyKeyboardRemove())
+    if not p['confirmed']:
+        await show_preview(update,context)
+    else:
+        context.user_data.pop('step',None)
+
 async def next_gender(q,context):
     context.user_data['step']='gender'
     await q.message.reply_text(t(context,'gender'),reply_markup=kb([[(t(context,'man'),'gender:man'),(t(context,'woman'),'gender:woman'),(t(context,'other'),'gender:other')]]))
@@ -488,6 +527,26 @@ async def callbacks(update:Update,context:ContextTypes.DEFAULT_TYPE):
     q=update.callback_query;uid=q.from_user.id;data=q.data or ''
     await q.answer()
     step=context.user_data.get('step')
+    if data.startswith('locchoice:'):
+        if data not in ('locchoice:yes','locchoice:no'):return
+        p=get(uid)
+        if not p:return
+        # A stale registration button must not reset an existing confirmed profile.
+        if p['confirmed'] and step not in ('location_choice','await_location'):
+            await q.message.reply_text(t(context,'stale',uid));return
+        await q.edit_message_reply_markup(reply_markup=None)
+        if data=='locchoice:yes':
+            await request_location(update,context)
+        else:
+            delete_location(conn,uid)
+            set_mode(conn,uid,'worldwide')
+            from telegram import ReplyKeyboardRemove
+            await q.message.reply_text(choice_words(lang(context,uid))[4],reply_markup=ReplyKeyboardRemove())
+            if not p['confirmed']:
+                await show_preview(update,context)
+            else:
+                context.user_data.pop('step',None)
+        return
     if data.startswith('agefilter:'):
         await filters_callback(update,context,conn,lang)
         return
@@ -648,7 +707,7 @@ async def messages(update:Update,context:ContextTypes.DEFAULT_TYPE):
         put(uid,confirmed=0)
         await show_preview(update,context);return
     next_step={'name':'age','age':'city','city':'gender','bio':'photo'}
-    if field=='photo':await show_preview(update,context)
+    if field=='photo':await ask_location_choice(update,context)
     elif field=='city':await msg.reply_text(t(context,'gender',uid),reply_markup=kb([[(t(context,'man',uid),'gender:man'),(t(context,'woman',uid),'gender:woman'),(t(context,'other',uid),'gender:other')]]));context.user_data['step']='gender'
     else:
         context.user_data['step']=next_step[field]
@@ -671,7 +730,7 @@ async def search_next(update,context):
     if not p['gender'] or not p['preference']:
         await context.bot.send_message(update.effective_chat.id,t(context,'need_preferences',uid));return
     min_age,max_age=get_age_range(conn,uid)
-    own_location=get_location(conn,uid)
+    own_location=get_location(conn,uid) if get_mode(conn,uid)=='nearby' else None
     with conn() as c:
         candidates=c.execute('''SELECT p.* FROM profiles p WHERE p.user_id!=? AND p.confirmed=1 AND p.active=1
             AND p.photo IS NOT NULL AND p.age BETWEEN ? AND ? AND p.gender IS NOT NULL AND p.preference IS NOT NULL
@@ -778,12 +837,13 @@ def main():
     init_db()
     init_filters(conn)
     init_location(conn)
+    init_location_choice(conn)
     app=Application.builder().token(TOKEN).post_init(setup_menu).build()
     for name,func in [('start',start),('search',search),('filters',age_filters_command),('location',lambda u,c: location_command(u,c,conn,lang)),('locationoff',lambda u,c: location_off(u,c,conn,lang)),('profile',profile),('myprofile',profile),('edit',edit),('delete',delete),('help',help_cmd),('settings',settings_cmd),('safety',safety_cmd),('cancel',cancel),('pause',pause),('resume',resume)]:
         app.add_handler(CommandHandler(name,func,filters=filters.ChatType.PRIVATE))
     register_admin(app, DB)
     app.add_handler(CallbackQueryHandler(callbacks))
-    app.add_handler(MessageHandler(filters.LOCATION & filters.ChatType.PRIVATE,lambda u,c: location_message(u,c,conn,lang)))
+    app.add_handler(MessageHandler(filters.LOCATION & filters.ChatType.PRIVATE,handle_location))
     app.add_handler(MessageHandler(filters.ALL & ~filters.LOCATION & ~filters.COMMAND & filters.ChatType.PRIVATE,messages))
     app.add_error_handler(error_handler)
     logging.info('TindraVen running')
