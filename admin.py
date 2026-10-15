@@ -128,7 +128,7 @@ def register_admin(app: Application, db_path):
                     await update.message.reply_text('Şikayət cədvəli yoxdur.')
                     return
                 cols = _columns(conn, 'reports')
-                wanted = [x for x in ('reporter_id', 'reported_id', 'target_id', 'reason', 'created_at') if x in cols]
+                wanted = [x for x in ('from_id', 'to_id', 'reason', 'created_at') if x in cols]
                 if not wanted:
                     await update.message.reply_text(f'Şikayət sayı: {_count(conn, "reports")}')
                     return
