@@ -435,6 +435,36 @@ def profile_caption(p,context):
                 + "<b>Location:</b> " + city)
     return ('<b>'+name+'</b>, '+age+'\n'+city+'\n'+escape(str(p['bio'] or x['none'])))
 
+def founder_intro_caption(p):
+    """Distinct official introduction card, sent with the existing admin logo."""
+    return ("<b>TINDRAVEN</b>  /  <b>001 — FOUNDER</b>\n\n"
+            "<b>" + escape(str(p['name'] or 'Founder')) + "</b>\n"
+            "<b>The person behind TindraVen.</b>\n\n"
+            "<i>This is not an ordinary dating profile.</i>\n\n"
+            "FOUNDER ACCESS  /  001")
+
+
+def founder_intro_keyboard(admin_id, viewer_id, context):
+    return kb([
+        [('Discover the Founder', 'founder:discover:' + str(admin_id))],
+        [(t(context,'skip',viewer_id), 'founder:continue:' + str(admin_id))],
+        [(t(context,'block',viewer_id), 'act:block:' + str(admin_id)),
+         (t(context,'report',viewer_id), 'act:report:' + str(admin_id))],
+    ])
+
+
+def founder_details(p):
+    name=escape(str(p['name'] or 'Founder'))
+    city=escape(str(p['city'] or ''))
+    return ("<b>FOUNDER FILE  /  001</b>\n\n"
+            "<b>" + name + "</b>\n"
+            "Founder &amp; Platform Administrator\n\n"
+            "<b>ABOUT THE FOUNDER</b>\n"
+            "TindraVen was created to help people make meaningful connections "
+            "across the world.\n\n"
+            "<b>LOCATION</b>\n" + city + "\n\n"
+            "<i>TINDRAVEN  /  OFFICIAL ACCOUNT</i>")
+
 async def show_preview(update,context):
     uid=update.effective_user.id;p=get(uid)
     context.user_data['step']='confirm'
@@ -645,6 +675,36 @@ async def callbacks(update:Update,context:ContextTypes.DEFAULT_TYPE):
         if field=='preference':await q.edit_message_reply_markup(reply_markup=None);await next_preference(q,context);context.user_data['edit_preference']=True;return
         context.user_data['step']='editvalue'
         await q.edit_message_text(t(context,{'name':'askname','age':'askage','city':'askcity','bio':'askbio','photo':'askphoto'}[field],uid));return
+    if data.startswith('founder:'):
+        parts=data.split(':')
+        if len(parts)!=3 or not parts[2].isdecimal():return
+        _,action,sid=parts
+        target=int(sid)
+        if not is_official_admin(target) or context.user_data.get('current_target')!=target:
+            await q.message.reply_text(t(context,'stale',uid));return
+        founder=get(target)
+        if not founder or not founder['confirmed'] or not founder['active']:
+            await q.message.reply_text(t(context,'stale',uid));return
+        if action=='discover':
+            rows=[[B(t(context,'like',uid),callback_data=f'act:like:{target}'),
+                   B(t(context,'skip',uid),callback_data=f'act:skip:{target}')]]
+            # A Telegram username is required for a reliable public contact link.
+            username=(founder['username'] or '').strip().lstrip('@')
+            if username and all(ch.isalnum() or ch=='_' for ch in username):
+                rows.append([B('Message the Founder',url='https://t.me/'+username)])
+            rows.append([B('Continue Searching',callback_data=f'founder:continue:{target}')])
+            rows.append([B(t(context,'block',uid),callback_data=f'act:block:{target}'),
+                         B(t(context,'report',uid),callback_data=f'act:report:{target}')])
+            await q.edit_message_reply_markup(reply_markup=None)
+            await q.message.reply_text(founder_details(founder),parse_mode=ParseMode.HTML,
+                                       reply_markup=K(rows))
+            return
+        if action=='continue':
+            await q.edit_message_reply_markup(reply_markup=None)
+            context.user_data.pop('current_target',None)
+            await search_next(update,context)
+            return
+        return
     if data.startswith('act:'):
         parts=data.split(':')
         if len(parts)!=3:return
@@ -759,11 +819,8 @@ async def search_next(update,context):
         if not already_shown and not blocked and admin_profile:
             await context.bot.send_photo(
                 update.effective_chat.id,admin_profile['photo'],
-                caption=profile_caption(admin_profile,context),parse_mode=ParseMode.HTML,
-                reply_markup=kb([
-                    [(t(context,'like',uid),f'act:like:{admin_uid}'),(t(context,'skip',uid),f'act:skip:{admin_uid}')],
-                    [(t(context,'block',uid),f'act:block:{admin_uid}'),(t(context,'report',uid),f'act:report:{admin_uid}')]
-                ]))
+                caption=founder_intro_caption(admin_profile),parse_mode=ParseMode.HTML,
+                reply_markup=founder_intro_keyboard(admin_uid,uid,context))
             context.user_data['current_target']=admin_uid
             with conn() as c:
                 c.execute('INSERT OR IGNORE INTO official_profile_views(viewer_id) VALUES (?)',(uid,))
@@ -775,10 +832,11 @@ async def search_next(update,context):
             AND p.photo IS NOT NULL AND p.age BETWEEN ? AND ? AND p.gender IS NOT NULL AND p.preference IS NOT NULL
             AND (?='everyone' OR p.gender=?)
             AND (p.preference='everyone' OR p.preference=?)
+            AND NOT (p.user_id=? AND EXISTS (SELECT 1 FROM official_profile_views v WHERE v.viewer_id=?))
             AND NOT EXISTS (SELECT 1 FROM likes l WHERE l.from_id=? AND l.to_id=p.user_id)
             AND NOT EXISTS (SELECT 1 FROM skips s WHERE s.from_id=? AND s.to_id=p.user_id)
             AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.from_id=? AND b.to_id=p.user_id) OR (b.from_id=p.user_id AND b.to_id=?))
-            ORDER BY RANDOM()''',(uid,min_age,max_age,p['preference'],p['preference'],p['gender'],uid,uid,uid,uid)).fetchall()
+            ORDER BY RANDOM()''',(uid,min_age,max_age,p['preference'],p['preference'],p['gender'],admin_uid or -1,uid,uid,uid,uid,uid)).fetchall()
     target=None
     shown_distance=None
     if own_location is None:
