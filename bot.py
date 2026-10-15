@@ -383,6 +383,7 @@ def init_db():
         c.execute('CREATE TABLE IF NOT EXISTS blocks (from_id INTEGER NOT NULL,to_id INTEGER NOT NULL,PRIMARY KEY(from_id,to_id))')
         c.execute('CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT,from_id INTEGER NOT NULL,to_id INTEGER NOT NULL,reason TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP)')
         c.execute('CREATE TABLE IF NOT EXISTS matches (a INTEGER NOT NULL,b INTEGER NOT NULL,PRIMARY KEY(a,b))')
+        c.execute('CREATE TABLE IF NOT EXISTS official_profile_views (viewer_id INTEGER PRIMARY KEY, shown_at TEXT DEFAULT CURRENT_TIMESTAMP)')
 
 def get(uid):
     with conn() as c:return c.execute('SELECT * FROM profiles WHERE user_id=?',(uid,)).fetchone()
@@ -401,6 +402,7 @@ def remove(uid):
         c.execute('DELETE FROM matches WHERE a=? OR b=?',(uid,uid))
         c.execute('DELETE FROM reports WHERE from_id=? OR to_id=?',(uid,uid))
         c.execute('DELETE FROM profiles WHERE user_id=?',(uid,))
+        c.execute('DELETE FROM official_profile_views WHERE viewer_id=?',(uid,))
     delete_filters(conn, uid)
     delete_location(conn, uid)
     delete_choice(conn, uid)
@@ -422,12 +424,16 @@ def is_official_admin(user_id):
 
 def profile_caption(p,context):
     x=T[p['language']] if p['language'] in T else T['en']
-    official = is_official_admin(p['user_id'])
-    name = escape(str(p['name'] or ''))
-    title = ('👑 ' + name + '  ✅' if official else name)
-    badge = ('\n🛡️ <b>TindraVen Official Admin</b>' if official else '')
-    return ('<b>'+title+'</b>, '+str(p['age'])+badge+'\n'
-            +escape(str(p['city'] or ''))+'\n'+escape(str(p['bio'] or x['none'])))
+    name=escape(str(p['name'] or ''))
+    age=escape(str(p['age'] or ''))
+    city=escape(str(p['city'] or ''))
+    if is_official_admin(p['user_id']):
+        return ("<b>TINDRAVEN / OFFICIAL ACCOUNT</b>  🔵✓\n\n"
+                + "<b>" + name + "</b> · " + age + "\n"
+                + "<b>Founder &amp; Platform Administrator</b>\n"
+                + "Identity verified by TindraVen\n\n"
+                + "<b>Location:</b> " + city)
+    return ('<b>'+name+'</b>, '+age+'\n'+city+'\n'+escape(str(p['bio'] or x['none'])))
 
 async def show_preview(update,context):
     uid=update.effective_user.id;p=get(uid)
@@ -738,6 +744,30 @@ async def search_next(update,context):
         await context.bot.send_message(update.effective_chat.id,t(context,'need_confirm',uid));return
     if not p['gender'] or not p['preference']:
         await context.bot.send_message(update.effective_chat.id,t(context,'need_preferences',uid));return
+    # Present the verified official profile once to each eligible viewer.
+    # Gender, age, preference and proximity do not restrict this introduction.
+    admin_raw=os.getenv('ADMIN_ID','').strip()
+    admin_uid=int(admin_raw) if admin_raw.isdecimal() else None
+    if admin_uid is not None and admin_uid!=uid:
+        with conn() as c:
+            already_shown=c.execute('SELECT 1 FROM official_profile_views WHERE viewer_id=?',(uid,)).fetchone()
+            blocked=c.execute('''SELECT 1 FROM blocks WHERE
+                (from_id=? AND to_id=?) OR (from_id=? AND to_id=?)''',
+                (uid,admin_uid,admin_uid,uid)).fetchone()
+            admin_profile=c.execute('''SELECT * FROM profiles WHERE user_id=? AND confirmed=1
+                AND active=1 AND photo IS NOT NULL''',(admin_uid,)).fetchone()
+        if not already_shown and not blocked and admin_profile:
+            await context.bot.send_photo(
+                update.effective_chat.id,admin_profile['photo'],
+                caption=profile_caption(admin_profile,context),parse_mode=ParseMode.HTML,
+                reply_markup=kb([
+                    [(t(context,'like',uid),f'act:like:{admin_uid}'),(t(context,'skip',uid),f'act:skip:{admin_uid}')],
+                    [(t(context,'block',uid),f'act:block:{admin_uid}'),(t(context,'report',uid),f'act:report:{admin_uid}')]
+                ]))
+            context.user_data['current_target']=admin_uid
+            with conn() as c:
+                c.execute('INSERT OR IGNORE INTO official_profile_views(viewer_id) VALUES (?)',(uid,))
+            return
     min_age,max_age=get_age_range(conn,uid)
     own_location=get_location(conn,uid) if get_mode(conn,uid)=='nearby' else None
     with conn() as c:
