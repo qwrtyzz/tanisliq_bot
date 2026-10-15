@@ -153,7 +153,7 @@ def register_admin(app: Application, db_path):
 
 async def notify_new_profile(context: ContextTypes.DEFAULT_TYPE, user_id: int, db_path):
     """Call ONLY after a newly confirmed registration, not on every /start."""
-    if not _admin_id():
+    if not _admin_id() or os.getenv("ADMIN_NEW_PROFILE_ALERTS", "0").strip() != "1":
         return
     try:
         with _connect(db_path) as conn:
