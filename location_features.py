@@ -1,6 +1,6 @@
 """Opt-in distance search. Coordinates are never shown to other users."""
 import math
-from telegram import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 
 DEFAULT_RADIUS_KM = 50
 TRANSLATIONS = {
@@ -49,13 +49,10 @@ def distance_label(km,language):
 
 async def location_command(update,context,conn,language):
  uid=update.effective_user.id
- if get_location(conn,uid):
-  await update.effective_message.reply_text(words(language(context,uid))[6]);return
- msg,button,*_=words(language(context,uid))
- await update.effective_message.reply_text(msg,reply_markup=ReplyKeyboardMarkup([[KeyboardButton(button,request_location=True)]],resize_keyboard=True,one_time_keyboard=True))
+ await update.effective_message.reply_text(choice_words(language(context,uid))[0], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(choice_words(language(context,uid))[1],callback_data='locchoice:yes')],[InlineKeyboardButton(choice_words(language(context,uid))[2],callback_data='locchoice:no')]]))
 
 async def location_off(update,context,conn,language):
- uid=update.effective_user.id;delete_location(conn,uid)
+ uid=update.effective_user.id;delete_location(conn,uid);set_mode(conn,uid,'worldwide')
  await update.effective_message.reply_text(words(language(context,uid))[3],reply_markup=ReplyKeyboardRemove())
 
 async def location_message(update,context,conn,language):
@@ -67,4 +64,40 @@ async def location_message(update,context,conn,language):
  try:save_location(conn,uid,loc.latitude,loc.longitude)
  except ValueError:
   await update.effective_message.reply_text(words(language(context,uid))[4]);return
+ set_mode(conn,uid,'nearby')
  await update.effective_message.reply_text(words(language(context,uid))[2],reply_markup=ReplyKeyboardRemove())
+
+
+# Persist the user's explicit search choice separately from exact coordinates.
+# Existing accounts default to worldwide; no migration deletes existing profiles.
+CHOICE_TEXT = {
+ 'az': ('📍 Yaxınlığınızdakı insanları görmək istəyirsiniz? Məkanınızı könüllü paylaşsanız, 50 km ətrafınızdakı insanları görə bilərsiniz. Dəqiq yeriniz göstərilməyəcək.', '✅ Bəli — 50 km', '🌍 Xeyr — bütün dünya', '📍 Məkanınızı aşağıdakı düymə ilə paylaşın. İstəmirsinizsə, /locationoff yazın.', '🌍 Ümumi axtarış aktivdir. Məsafə göstərilməyəcək.', '📍 Yaxınlıq axtarışı aktivdir: 50 km.'),
+ 'en': ('📍 Want to meet people nearby? Optionally share your location to see people within 50 km. Your exact position is not shown.', '✅ Yes — 50 km', '🌍 No — worldwide', '📍 Use the button below to share your location, or /locationoff to cancel.', '🌍 Worldwide search enabled. No distances shown.', '📍 Nearby search enabled: 50 km.'),
+ 'tr': ('📍 Yakınınızdaki kişileri görmek ister misiniz? Konumunuzu isteğe bağlı paylaşarak 50 km içindekileri görebilirsiniz. Kesin konumunuz gösterilmez.', '✅ Evet — 50 km', '🌍 Hayır — herkes', '📍 Aşağıdaki düğmeyle konum paylaşın veya /locationoff ile vazgeçin.', '🌍 Genel arama açık. Mesafe gösterilmez.', '📍 Yakın arama açık: 50 km.'),
+ 'ru': ('📍 Хотите видеть людей поблизости? По желанию отправьте геопозицию для поиска в радиусе 50 км. Точные координаты не показываются.', '✅ Да — 50 км', '🌍 Нет — все', '📍 Отправьте геопозицию кнопкой ниже или отмените через /locationoff.', '🌍 Поиск по всем профилям. Расстояние не показывается.', '📍 Поиск рядом включён: 50 км.'),
+ 'id': ('📍 Ingin melihat orang di dekat Anda? Bagikan lokasi secara opsional untuk mencari dalam 50 km. Koordinat tepat tidak ditampilkan.', '✅ Ya — 50 km', '🌍 Tidak — semua orang', '📍 Bagikan lokasi dengan tombol di bawah, atau batalkan dengan /locationoff.', '🌍 Pencarian global aktif. Jarak tidak ditampilkan.', '📍 Pencarian terdekat aktif: 50 km.')
+}
+
+def choice_words(code):
+ return CHOICE_TEXT.get(code, CHOICE_TEXT['en'])
+
+def init_location_choice(conn):
+ with conn() as c:
+  c.execute("CREATE TABLE IF NOT EXISTS location_choices (user_id INTEGER PRIMARY KEY, mode TEXT NOT NULL CHECK(mode IN ('worldwide','nearby'))) ")
+
+def get_mode(conn, uid):
+ with conn() as c:
+  row=c.execute('SELECT mode FROM location_choices WHERE user_id=?',(uid,)).fetchone()
+ return row['mode'] if row else 'worldwide'
+
+def set_mode(conn, uid, mode):
+ if mode not in ('worldwide','nearby'): raise ValueError('Invalid location mode')
+ with conn() as c:
+  c.execute('INSERT INTO location_choices(user_id,mode) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET mode=excluded.mode',(uid,mode))
+
+def delete_choice(conn, uid):
+ with conn() as c:
+  c.execute('DELETE FROM location_choices WHERE user_id=?',(uid,))
+
+def share_keyboard(code):
+ return ReplyKeyboardMarkup([[KeyboardButton(words(code)[1],request_location=True)]],resize_keyboard=True,one_time_keyboard=True)
