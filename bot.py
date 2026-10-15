@@ -1,5 +1,10 @@
-        await msg.reply_text(t(context,'help',uid));return
-    field=context.user_data.get('edit_field') if step=='editvalue' else step
+import os
+import sqlite3
+import logging
+from pathlib import Path
+from html import escape
+await msg.reply_text(t('edit(context,'heimport os
+    field=context.user_data.get_field') if step=='editvalue' else step
     value=(msg.text or '').strip()
     if field=='photo':
         if not msg.photo:await msg.reply_text(t(context,'photo',uid));return
