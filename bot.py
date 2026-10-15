@@ -7,6 +7,7 @@ from telegram import Update, InlineKeyboardButton as B, InlineKeyboardMarkup as 
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 from menu import setup_menu
+from admin import register_admin, notify_new_profile
 
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
 DB = Path(os.getenv("DB_PATH", str(Path(__file__).with_name("tindraven.sqlite3"))))
@@ -489,6 +490,7 @@ async def callbacks(update:Update,context:ContextTypes.DEFAULT_TYPE):
             p=get(uid)
             if p:
                 context.user_data['step']='editmenu'
+                context.user_data['editing_profile']=True
                 await q.message.reply_text(t(context,'editq',uid),reply_markup=edit_keyboard(context,uid))
         return
     if data.startswith('delete:'):
@@ -542,7 +544,10 @@ async def callbacks(update:Update,context:ContextTypes.DEFAULT_TYPE):
     if data.startswith('confirm:') and step=='confirm':
         await q.edit_message_reply_markup(reply_markup=None)
         if data=='confirm:yes':
+            was_confirmed = bool(get(uid) and get(uid)['confirmed'])
             put(uid,confirmed=1,active=1,username=q.from_user.username)
+            if not was_confirmed and not context.user_data.get('editing_profile'):
+                await notify_new_profile(context, uid, DB)
             context.user_data.clear();await q.message.reply_text(t(context,'ready',uid)+'\n'+t(context,'safety',uid))
         else:
             context.user_data['step']='editmenu';await q.message.reply_text(t(context,'editq',uid),reply_markup=edit_keyboard(context,uid))
@@ -552,6 +557,7 @@ async def callbacks(update:Update,context:ContextTypes.DEFAULT_TYPE):
         if field=='delete':
             await q.edit_message_text(t(context,'deleteq',uid),reply_markup=kb([[(t(context,'yes',uid),'delete:yes'),(t(context,'no',uid),'delete:no')]]));return
         if field not in ('name','age','city','bio','photo','gender','preference'):return
+        context.user_data['editing_profile']=True
         context.user_data['edit_field']=field
         if field=='gender':await q.edit_message_reply_markup(reply_markup=None);await next_gender(q,context);context.user_data['edit_gender']=True;return
         if field=='preference':await q.edit_message_reply_markup(reply_markup=None);await next_preference(q,context);context.user_data['edit_preference']=True;return
@@ -687,6 +693,7 @@ async def edit(update,context):
     if not p or not p['photo']:
         await update.message.reply_text(t(context,'need',uid));return
     context.user_data['step']='editmenu'
+    context.user_data['editing_profile']=True
     await update.message.reply_text(t(context,'editq',uid),reply_markup=edit_keyboard(context,uid))
 
 async def delete(update,context):
@@ -744,6 +751,7 @@ def main():
     app=Application.builder().token(TOKEN).post_init(setup_menu).build()
     for name,func in [('start',start),('search',search),('profile',profile),('myprofile',profile),('edit',edit),('delete',delete),('help',help_cmd),('settings',settings_cmd),('safety',safety_cmd),('cancel',cancel),('pause',pause),('resume',resume)]:
         app.add_handler(CommandHandler(name,func,filters=filters.ChatType.PRIVATE))
+    register_admin(app, DB)
     app.add_handler(CallbackQueryHandler(callbacks))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND & filters.ChatType.PRIVATE,messages))
     app.add_error_handler(error_handler)
