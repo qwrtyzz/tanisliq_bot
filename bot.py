@@ -2,15 +2,17 @@ import os
 import sqlite3
 import logging
 from pathlib import Path
+from storage import prepare_database
 from html import escape
 from telegram import Update, InlineKeyboardButton as B, InlineKeyboardMarkup as K
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 from menu import setup_menu
 from admin import register_admin, notify_new_profile
+from search_filters import init_filters, get_age_range, delete_filters, filters_command, filters_callback
 
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
-DB = Path(os.getenv("DB_PATH", str(Path(__file__).with_name("tindraven.sqlite3"))))
+DB = Path(os.getenv("DB_PATH", "/data/tindraven.sqlite3" if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID") else str(Path(__file__).with_name("tindraven.sqlite3"))))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 T = {'az': {'welcome': 'TindraVen-ə xoş gəlmisiniz! ❤️ Dilinizi seçin:',
@@ -398,6 +400,7 @@ def remove(uid):
         c.execute('DELETE FROM matches WHERE a=? OR b=?',(uid,uid))
         c.execute('DELETE FROM reports WHERE from_id=? OR to_id=?',(uid,uid))
         c.execute('DELETE FROM profiles WHERE user_id=?',(uid,))
+    delete_filters(conn, uid)
 
 def lang(context,uid=None):
     if uid is not None:
@@ -483,6 +486,9 @@ async def callbacks(update:Update,context:ContextTypes.DEFAULT_TYPE):
     q=update.callback_query;uid=q.from_user.id;data=q.data or ''
     await q.answer()
     step=context.user_data.get('step')
+    if data.startswith('agefilter:'):
+        await filters_callback(update,context,conn,lang)
+        return
     if data.startswith('home:'):
         if data=='home:search':
             await search_next(update,context)
@@ -662,15 +668,16 @@ async def search_next(update,context):
         await context.bot.send_message(update.effective_chat.id,t(context,'need_confirm',uid));return
     if not p['gender'] or not p['preference']:
         await context.bot.send_message(update.effective_chat.id,t(context,'need_preferences',uid));return
+    min_age,max_age=get_age_range(conn,uid)
     with conn() as c:
         target=c.execute('''SELECT p.* FROM profiles p WHERE p.user_id!=? AND p.confirmed=1 AND p.active=1
-            AND p.photo IS NOT NULL AND p.age>=18 AND p.gender IS NOT NULL AND p.preference IS NOT NULL
+            AND p.photo IS NOT NULL AND p.age BETWEEN ? AND ? AND p.gender IS NOT NULL AND p.preference IS NOT NULL
             AND (?='everyone' OR p.gender=?)
             AND (p.preference='everyone' OR p.preference=?)
             AND NOT EXISTS (SELECT 1 FROM likes l WHERE l.from_id=? AND l.to_id=p.user_id)
             AND NOT EXISTS (SELECT 1 FROM skips s WHERE s.from_id=? AND s.to_id=p.user_id)
             AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.from_id=? AND b.to_id=p.user_id) OR (b.from_id=p.user_id AND b.to_id=?))
-            ORDER BY RANDOM() LIMIT 1''',(uid,p['preference'],p['preference'],p['gender'],uid,uid,uid,uid)).fetchone()
+            ORDER BY RANDOM() LIMIT 1''',(uid,min_age,max_age,p['preference'],p['preference'],p['gender'],uid,uid,uid,uid)).fetchone()
     if not target:
         context.user_data.pop('current_target',None)
         await context.bot.send_message(update.effective_chat.id,t(context,'nonefound',uid));return
@@ -681,6 +688,9 @@ async def search_next(update,context):
 async def search(update,context):
     context.user_data.pop('step',None)
     await search_next(update,context)
+
+async def age_filters_command(update,context):
+    await filters_command(update,context,conn,lang)
 
 async def profile(update,context):
     uid=update.effective_user.id;p=get(uid)
@@ -747,9 +757,11 @@ async def error_handler(update,context):
 
 def main():
     if not TOKEN:raise SystemExit('BOT_TOKEN missing. Windows CMD: set "BOT_TOKEN=your_token"')
+    prepare_database(DB)
     init_db()
+    init_filters(conn)
     app=Application.builder().token(TOKEN).post_init(setup_menu).build()
-    for name,func in [('start',start),('search',search),('profile',profile),('myprofile',profile),('edit',edit),('delete',delete),('help',help_cmd),('settings',settings_cmd),('safety',safety_cmd),('cancel',cancel),('pause',pause),('resume',resume)]:
+    for name,func in [('start',start),('search',search),('filters',age_filters_command),('profile',profile),('myprofile',profile),('edit',edit),('delete',delete),('help',help_cmd),('settings',settings_cmd),('safety',safety_cmd),('cancel',cancel),('pause',pause),('resume',resume)]:
         app.add_handler(CommandHandler(name,func,filters=filters.ChatType.PRIVATE))
     register_admin(app, DB)
     app.add_handler(CallbackQueryHandler(callbacks))
