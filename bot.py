@@ -471,11 +471,55 @@ async def show_preview(update,context):
     await context.bot.send_photo(update.effective_chat.id,p['photo'],caption=profile_caption(p,context),parse_mode=ParseMode.HTML,
         reply_markup=kb([[(t(context,'yes'),'confirm:yes'),(t(context,'no'),'confirm:no')]]))
 
+FOUNDER_CARD = Path(__file__).with_name('founder_card.png')
+
+async def admin_welcome(update, context):
+    """ADMIN_ID-only automatic registration; never reset existing edits."""
+    uid = update.effective_user.id
+    p = get(uid)
+    defaults = {
+        'language': 'az',
+        'name': 'R.Javadov',
+        'age': 21,
+        'city': 'Baku, Yasamal',
+        'bio': 'Founder & Platform Administrator',
+        'gender': 'other',
+        'preference': 'everyone',
+    }
+    changes = {key: value for key, value in defaults.items() if not p or p[key] is None or p[key] == ''}
+    changes.update(confirmed=1, active=1, username=update.effective_user.username)
+    put(uid, **changes)
+    p = get(uid)
+    greeting = ('<b>Welcome Admin!</b>\n'
+                'Bu sizin xüsusi Founder profilinizdir.\n'
+                'Məlumatları istədiyiniz vaxt /edit vasitəsilə dəyişə bilərsiniz.')
+    # The card is an actual image, not HTML that Telegram would flatten.
+    if FOUNDER_CARD.is_file():
+        with FOUNDER_CARD.open('rb') as photo_file:
+            sent = await context.bot.send_photo(
+                chat_id=update.effective_chat.id, photo=photo_file,
+                caption=greeting, parse_mode=ParseMode.HTML,
+                reply_markup=kb([[('My Official Profile','home:adminprofile')],
+                                 [('Edit Profile','home:edit')],
+                                 [('Admin Dashboard','home:admindashboard')]]))
+        if not p['photo'] and sent.photo:
+            put(uid, photo=sent.photo[-1].file_id)
+    else:
+        await update.effective_message.reply_text(
+            greeting + '\n\n' + profile_caption(p,context),
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb([[('My Official Profile','home:adminprofile')],
+                             [('Edit Profile','home:edit')],
+                             [('Admin Dashboard','home:admindashboard')]]))
+
 async def start(update:Update,context:ContextTypes.DEFAULT_TYPE):
     """One Telegram account has at most one profile; /start never overwrites it."""
     uid = update.effective_user.id
     p = get(uid)
     context.user_data.clear()
+    if is_official_admin(uid):
+        await admin_welcome(update, context)
+        return
     if p and p['confirmed'] and p['name'] and p['age'] and p['city'] and p['photo']:
         # Older profiles may not yet have gender/preference; do not restart registration.
         if not p['gender'] or not p['preference']:
@@ -596,6 +640,19 @@ async def callbacks(update:Update,context:ContextTypes.DEFAULT_TYPE):
         await filters_callback(update,context,conn,lang)
         return
     if data.startswith('home:'):
+        if data=='home:adminprofile' and is_official_admin(uid):
+            p=get(uid)
+            if FOUNDER_CARD.is_file():
+                with FOUNDER_CARD.open('rb') as photo_file:
+                    await context.bot.send_photo(update.effective_chat.id, photo_file,
+                        caption=profile_caption(p,context),parse_mode=ParseMode.HTML)
+            elif p and p['photo']:
+                await context.bot.send_photo(update.effective_chat.id,p['photo'],
+                    caption=profile_caption(p,context),parse_mode=ParseMode.HTML)
+            return
+        if data=='home:admindashboard' and is_official_admin(uid):
+            await q.message.reply_text('Admin paneli açmaq üçün /admin yazın.')
+            return
         if data=='home:search':
             await search_next(update,context)
         elif data=='home:edit':
@@ -869,6 +926,10 @@ async def profile(update,context):
     uid=update.effective_user.id;p=get(uid)
     if not p or not p['photo']:
         await update.message.reply_text(t(context,'need',uid));return
+    if is_official_admin(uid) and FOUNDER_CARD.is_file():
+        with FOUNDER_CARD.open('rb') as photo_file:
+            await update.message.reply_photo(photo_file,caption=profile_caption(p,context),parse_mode=ParseMode.HTML)
+        return
     await update.message.reply_photo(p['photo'],caption=profile_caption(p,context),parse_mode=ParseMode.HTML)
 
 async def edit(update,context):
