@@ -428,20 +428,13 @@ def profile_caption(p,context):
     age=escape(str(p['age'] or ''))
     city=escape(str(p['city'] or ''))
     if is_official_admin(p['user_id']):
-        return ("<b>TINDRAVEN / OFFICIAL ACCOUNT</b>  🔵✓\n\n"
-                + "<b>" + name + "</b> · " + age + "\n"
-                + "<b>Founder &amp; Platform Administrator</b>\n"
-                + "Identity verified by TindraVen\n\n"
-                + "<b>Location:</b> " + city)
+        return ("<b>TINDRAVEN / OFFICIAL ACCOUNT</b>\n\n"
+                "<b>" + name + "</b>\n"
+                "Founder &amp; Administrator")
     return ('<b>'+name+'</b>, '+age+'\n'+city+'\n'+escape(str(p['bio'] or x['none'])))
 
 def founder_intro_caption(p):
-    """Distinct official introduction card, sent with the existing admin logo."""
-    return ("<b>TINDRAVEN</b>  /  <b>001 — FOUNDER</b>\n\n"
-            "<b>" + escape(str(p['name'] or 'Founder')) + "</b>\n"
-            "<b>The person behind TindraVen.</b>\n\n"
-            "<i>This is not an ordinary dating profile.</i>\n\n"
-            "FOUNDER ACCESS  /  001")
+    return profile_caption(p, None)
 
 
 def founder_intro_keyboard(admin_id, viewer_id, context):
@@ -454,16 +447,9 @@ def founder_intro_keyboard(admin_id, viewer_id, context):
 
 
 def founder_details(p):
-    name=escape(str(p['name'] or 'Founder'))
-    city=escape(str(p['city'] or ''))
-    return ("<b>FOUNDER FILE  /  001</b>\n\n"
-            "<b>" + name + "</b>\n"
-            "Founder &amp; Platform Administrator\n\n"
-            "<b>ABOUT THE FOUNDER</b>\n"
-            "TindraVen was created to help people make meaningful connections "
-            "across the world.\n\n"
-            "<b>LOCATION</b>\n" + city + "\n\n"
-            "<i>TINDRAVEN  /  OFFICIAL ACCOUNT</i>")
+    return ("<b>TINDRAVEN / FOUNDER ACCESS 001</b>\n\n"
+            "<b>" + escape(str(p['name'] or 'R.Javadov')) + "</b>\n"
+            "Founder &amp; Administrator")
 
 async def show_preview(update,context):
     uid=update.effective_user.id;p=get(uid)
@@ -492,7 +478,7 @@ async def admin_welcome(update, context):
     p = get(uid)
     greeting = ('<b>Welcome Admin!</b>\n'
                 'Bu sizin xüsusi Founder profilinizdir.\n'
-                'Məlumatları istədiyiniz vaxt /edit vasitəsilə dəyişə bilərsiniz.')
+                'Profil məlumatlarını /edit vasitəsilə dəyişə bilərsiniz.')
     # The card is an actual image, not HTML that Telegram would flatten.
     if FOUNDER_CARD.is_file():
         with FOUNDER_CARD.open('rb') as photo_file:
@@ -874,10 +860,17 @@ async def search_next(update,context):
             admin_profile=c.execute('''SELECT * FROM profiles WHERE user_id=? AND confirmed=1
                 AND active=1 AND photo IS NOT NULL''',(admin_uid,)).fetchone()
         if not already_shown and not blocked and admin_profile:
-            await context.bot.send_photo(
-                update.effective_chat.id,admin_profile['photo'],
-                caption=founder_intro_caption(admin_profile),parse_mode=ParseMode.HTML,
-                reply_markup=founder_intro_keyboard(admin_uid,uid,context))
+            if FOUNDER_CARD.is_file():
+                with FOUNDER_CARD.open('rb') as founder_photo:
+                    await context.bot.send_photo(
+                        update.effective_chat.id, founder_photo,
+                        caption=founder_intro_caption(admin_profile),parse_mode=ParseMode.HTML,
+                        reply_markup=founder_intro_keyboard(admin_uid,uid,context))
+            else:
+                await context.bot.send_photo(
+                    update.effective_chat.id,admin_profile['photo'],
+                    caption=founder_intro_caption(admin_profile),parse_mode=ParseMode.HTML,
+                    reply_markup=founder_intro_keyboard(admin_uid,uid,context))
             context.user_data['current_target']=admin_uid
             with conn() as c:
                 c.execute('INSERT OR IGNORE INTO official_profile_views(viewer_id) VALUES (?)',(uid,))
